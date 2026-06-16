@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { ProviderEntry, ModelEntry, ClaudeSettings } from '../../shared/types'
+import defaultProviders from '../../shared/default-providers.json'
 
 interface SwitchResult {
   success: boolean
@@ -51,7 +52,13 @@ export class ModelService {
   /** Returns normalized provider list with configuration status */
   getProviders(): ProviderEntry[] {
     try {
-      if (!existsSync(this.providersPath)) return []
+      // First run: auto-create from bundled default
+      if (!existsSync(this.providersPath)) {
+        const dir = join(homedir(), '.claude')
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+        writeFileSync(this.providersPath, JSON.stringify(defaultProviders, null, 2))
+        console.log('[ModelService] Created default providers.json for new user')
+      }
       const raw = JSON.parse(readFileSync(this.providersPath, 'utf-8'))
       const providersObj = raw.providers
       if (!providersObj || typeof providersObj !== 'object') return []

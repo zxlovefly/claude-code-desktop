@@ -1,0 +1,387 @@
+{
+  "__comment": "LLM Provider & Model Configuration for Claude Code. Supports Anthropic-compatible APIs and OpenRouter gateway.",
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "website": "https://platform.deepseek.com",
+      "api_base": "https://api.deepseek.com/anthropic",
+      "auth_env": "ANTHROPIC_AUTH_TOKEN",
+      "models": {
+        "deepseek-v4-pro": {
+          "display": "DeepSeek V4 Pro [1M]",
+          "model_id": "deepseek-v4-pro[1m]",
+          "context_window": 1048576,
+          "max_output": 32768,
+          "pricing": {
+            "input_per_1M": 2,
+            "output_per_1M": 8,
+            "cache_write_per_1M": 4,
+            "cache_hit_per_1M": 0.25,
+            "currency": "CNY"
+          },
+          "features": [
+            "anthropic_compatible",
+            "prompt_caching",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        },
+        "deepseek-v4-flash": {
+          "display": "DeepSeek V4 Flash [1M]",
+          "model_id": "deepseek-v4-flash",
+          "context_window": 1048576,
+          "max_output": 32768,
+          "pricing": {
+            "input_per_1M": 0.5,
+            "output_per_1M": 2,
+            "cache_write_per_1M": 1,
+            "cache_hit_per_1M": 0.06,
+            "currency": "CNY"
+          },
+          "features": [
+            "anthropic_compatible",
+            "prompt_caching",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "deepseek-chat": {
+          "display": "DeepSeek Chat V3",
+          "model_id": "deepseek-chat",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 1,
+            "output_per_1M": 4,
+            "cache_write_per_1M": 2,
+            "cache_hit_per_1M": 0.1,
+            "currency": "CNY"
+          },
+          "features": [
+            "anthropic_compatible",
+            "prompt_caching",
+            "tool_use",
+            "streaming"
+          ]
+        }
+      }
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "website": "https://console.anthropic.com",
+      "api_base": "https://api.anthropic.com",
+      "auth_env": "ANTHROPIC_AUTH_TOKEN",
+      "models": {
+        "claude-opus-4-8": {
+          "display": "Claude Opus 4.8",
+          "model_id": "claude-opus-4-8-20250514",
+          "context_window": 200000,
+          "max_output": 32768,
+          "pricing": {
+            "input_per_1M": 15,
+            "output_per_1M": 75,
+            "cache_write_per_1M": 30,
+            "cache_hit_per_1M": 1.5,
+            "currency": "USD"
+          },
+          "features": [
+            "native",
+            "prompt_caching",
+            "tool_use",
+            "streaming",
+            "vision",
+            "computer_use"
+          ]
+        },
+        "claude-sonnet-4-6": {
+          "display": "Claude Sonnet 4.6",
+          "model_id": "claude-sonnet-4-6-20251101",
+          "context_window": 200000,
+          "max_output": 16384,
+          "pricing": {
+            "input_per_1M": 3,
+            "output_per_1M": 15,
+            "cache_write_per_1M": 6,
+            "cache_hit_per_1M": 0.3,
+            "currency": "USD"
+          },
+          "features": [
+            "native",
+            "prompt_caching",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        },
+        "claude-haiku-4-5": {
+          "display": "Claude Haiku 4.5",
+          "model_id": "claude-haiku-4-5-20251001",
+          "context_window": 200000,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.8,
+            "output_per_1M": 4,
+            "cache_write_per_1M": 1.6,
+            "cache_hit_per_1M": 0.08,
+            "currency": "USD"
+          },
+          "features": [
+            "native",
+            "prompt_caching",
+            "tool_use",
+            "streaming"
+          ]
+        }
+      }
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "website": "https://openrouter.ai",
+      "api_base": "https://openrouter.ai/anthropic",
+      "auth_env": "ANTHROPIC_AUTH_TOKEN",
+      "models": {
+        "openrouter/qwen-plus": {
+          "display": "Qwen Plus (via OpenRouter)",
+          "model_id": "qwen/qwen-plus",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.8,
+            "output_per_1M": 0.8,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "openrouter/qwen-max": {
+          "display": "Qwen Max (via OpenRouter)",
+          "model_id": "qwen/qwen-max",
+          "context_window": 32768,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 2.5,
+            "output_per_1M": 10,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "openrouter/glm-4.5": {
+          "display": "GLM-4.5 (via OpenRouter)",
+          "model_id": "zhipuai/glm-4.5",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 1.5,
+            "output_per_1M": 1.5,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        },
+        "openrouter/kimi-k2": {
+          "display": "Kimi K2 (via OpenRouter)",
+          "model_id": "moonshotai/kimi-k2",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 1.5,
+            "output_per_1M": 1.5,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "openrouter/mimo": {
+          "display": "Xiaomi MiMo (via OpenRouter)",
+          "model_id": "xiaomi/mimo-v1",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.4,
+            "output_per_1M": 0.4,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "openrouter/gemini-flash": {
+          "display": "Gemini 2.5 Flash (via OpenRouter)",
+          "model_id": "google/gemini-2.5-flash",
+          "context_window": 1048576,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.15,
+            "output_per_1M": 0.6,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        },
+        "openrouter/gemini-pro": {
+          "display": "Gemini 2.5 Pro (via OpenRouter)",
+          "model_id": "google/gemini-2.5-pro",
+          "context_window": 1048576,
+          "max_output": 16384,
+          "pricing": {
+            "input_per_1M": 1.25,
+            "output_per_1M": 10,
+            "currency": "USD"
+          },
+          "features": [
+            "anthropic_compatible",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        }
+      }
+    },
+    "dashscope": {
+      "name": "DashScope (阿里云百炼)",
+      "website": "https://dashscope.console.aliyun.com",
+      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "auth_env": "DASHSCOPE_API_KEY",
+      "note": "OpenAI-compatible API. Use with OpenRouter for Anthropic compatibility, or use native Claude Code OpenAI mode.",
+      "models": {
+        "dashscope/qwen-plus": {
+          "display": "Qwen Plus (DashScope 原生)",
+          "model_id": "qwen-plus",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.8,
+            "output_per_1M": 2,
+            "currency": "CNY"
+          },
+          "features": [
+            "openai_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        },
+        "dashscope/qwen-max": {
+          "display": "Qwen Max (DashScope 原生)",
+          "model_id": "qwen-max",
+          "context_window": 32768,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 2.5,
+            "output_per_1M": 10,
+            "currency": "CNY"
+          },
+          "features": [
+            "openai_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        }
+      }
+    },
+    "zhipu": {
+      "name": "智谱AI GLM",
+      "website": "https://open.bigmodel.cn",
+      "api_base": "https://open.bigmodel.cn/api/paas/v4",
+      "auth_env": "ZHIPU_API_KEY",
+      "note": "GLM原生API。通过OpenRouter使用以获得Anthropic兼容性。",
+      "models": {
+        "zhipu/glm-4.5": {
+          "display": "GLM-4.5 (智谱原生)",
+          "model_id": "glm-4.5",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 1.5,
+            "output_per_1M": 1.5,
+            "currency": "CNY"
+          },
+          "features": [
+            "native_api",
+            "tool_use",
+            "streaming",
+            "vision"
+          ]
+        }
+      }
+    },
+    "moonshot": {
+      "name": "月之暗面 Kimi",
+      "website": "https://platform.moonshot.cn",
+      "api_base": "https://api.moonshot.cn/v1",
+      "auth_env": "MOONSHOT_API_KEY",
+      "note": "Kimi原生API（OpenAI兼容）。通过OpenRouter使用以获得Anthropic兼容性。",
+      "models": {
+        "moonshot/kimi-k2": {
+          "display": "Kimi K2 (原生)",
+          "model_id": "kimi-k2-0905-preview",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 2,
+            "output_per_1M": 8,
+            "currency": "CNY"
+          },
+          "features": [
+            "openai_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        }
+      }
+    },
+    "xiaomi": {
+      "name": "小米 MiMo",
+      "website": "https://platform.mi.com",
+      "api_base": "https://api.xiaomimimo.com/v1",
+      "auth_env": "MIMO_API_KEY",
+      "note": "MiMo原生API。通过OpenRouter使用以获得Anthropic兼容性。",
+      "models": {
+        "xiaomi/mimo-v1": {
+          "display": "MiMo V1 (原生)",
+          "model_id": "mimo-v1",
+          "context_window": 131072,
+          "max_output": 8192,
+          "pricing": {
+            "input_per_1M": 0.4,
+            "output_per_1M": 0.4,
+            "currency": "CNY"
+          },
+          "features": [
+            "openai_compatible",
+            "tool_use",
+            "streaming"
+          ]
+        }
+      }
+    },
+    "custom": {
+      "name": "自定义",
+      "website": "",
+      "api_base": "",
+      "auth_env": "ANTHROPIC_AUTH_TOKEN",
+      "note": "自定义Anthropic兼容端点。设置 ANTHROPIC_BASE_URL 和 ANTHROPIC_AUTH_TOKEN。",
+      "models": {}
+    }
+  }
+}

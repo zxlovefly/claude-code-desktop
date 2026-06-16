@@ -5,3 +5,6 @@ out/
 .env
 .DS_Store
 Thumbs.db
+*.png
+*.zip
+*.ps1

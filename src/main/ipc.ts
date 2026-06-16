@@ -109,6 +109,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('app:check-claude', () => {
+    const { execSync } = require('child_process')
+    try {
+      const result = execSync('claude --version', { encoding: 'utf-8', timeout: 5000 })
+      return { installed: true, version: result.trim() }
+    } catch {
+      return { installed: false, version: '' }
+    }
+  })
+
   ipcMain.handle('app:cwd', () => {
     return process.cwd()
   })

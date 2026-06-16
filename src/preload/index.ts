@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+const { clipboard } = require('electron')
+
 const allowedSendChannels = ['terminal:input', 'terminal:resize']
 const allowedInvokeChannels = [
   'terminal:create', 'terminal:kill', 'terminal:list',
@@ -7,7 +9,7 @@ const allowedInvokeChannels = [
   'config:get', 'config:set',
   'proxy:status', 'proxy:toggle',
   'scheduler:list', 'scheduler:add', 'scheduler:update', 'scheduler:delete', 'scheduler:toggle', 'scheduler:runNow',
-  'app:get-version', 'app:cwd',
+  'app:get-version', 'app:cwd', 'app:check-claude',
 ]
 const allowedReceiveChannels = ['terminal:data', 'terminal:exit', 'proxy:stats', 'scheduler:executed']
 
@@ -15,6 +17,7 @@ export interface ElectronAPI {
   send: (channel: string, ...args: unknown[]) => void
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   receive: (channel: string, callback: (...args: unknown[]) => void) => () => void
+  clipboard: { writeText: (text: string) => void; readText: () => string }
 }
 
 const api: ElectronAPI = {
@@ -36,6 +39,10 @@ const api: ElectronAPI = {
       return () => ipcRenderer.removeListener(channel, handler)
     }
     return () => {}
+  },
+  clipboard: {
+    writeText: (text: string) => clipboard.writeText(text),
+    readText: () => clipboard.readText(),
   },
 }
 

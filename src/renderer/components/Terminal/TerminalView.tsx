@@ -79,9 +79,54 @@ export function TerminalView({ sessionId, visible }: TerminalViewProps) {
     })
     unsubRef.current.push(unsubData)
 
-    // Send keystrokes to PTY
+    // Send keystrokes to PTY (with copy/paste intercept)
     terminal.onData((data: string) => {
       window.electron.send('terminal:input', sessionId, data)
+    })
+
+    // Attach custom key handler for copy/paste
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type === 'keydown') {
+        // Ctrl+Shift+C or Ctrl+C with selection → Copy
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
+          const sel = terminal.getSelection()
+          if (sel) window.electron.clipboard.writeText(sel)
+          return false
+        }
+        // Ctrl+Shift+V → Paste
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+          const text = window.electron.clipboard.readText()
+          if (text) window.electron.send('terminal:input', sessionId, text)
+          return false
+        }
+        // Ctrl+Insert → Copy
+        if (e.ctrlKey && e.key === 'Insert') {
+          const sel = terminal.getSelection()
+          if (sel) window.electron.clipboard.writeText(sel)
+          return false
+        }
+        // Shift+Insert → Paste
+        if (e.shiftKey && e.key === 'Insert') {
+          const text = window.electron.clipboard.readText()
+          if (text) window.electron.send('terminal:input', sessionId, text)
+          return false
+        }
+      }
+      return true
+    })
+
+    // Context menu for copy/paste
+    containerRef.current!.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault()
+      const sel = terminal.getSelection()
+      // If there's a selection, copy it automatically on right-click
+      if (sel) {
+        window.electron.clipboard.writeText(sel)
+      } else {
+        // Otherwise paste
+        const text = window.electron.clipboard.readText()
+        if (text) window.electron.send('terminal:input', sessionId, text)
+      }
     })
 
     // Resize observer

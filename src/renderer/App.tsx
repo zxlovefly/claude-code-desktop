@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Allotment } from 'allotment'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { TerminalView } from './components/Terminal/TerminalView'
@@ -13,11 +13,17 @@ export default function App() {
   const { setCurrentModel, setProviders } = useModelStore()
   const { setStats } = useMonitorStore()
   const initialized = useRef(false)
+  const [claudeOk, setClaudeOk] = useState(true)
 
   // 初始化：创建会话、加载模型、监听流量
   useEffect(() => {
     if (initialized.current) return
     initialized.current = true
+
+    // 检测 Claude Code CLI 是否安装
+    window.electron.invoke('app:check-claude').then((result: any) => {
+      if (!result?.installed) setClaudeOk(false)
+    })
 
     // 创建第一个终端会话
     window.electron.invoke('terminal:create', '').then((session: unknown) => {
@@ -58,6 +64,13 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117]">
+      {/* Claude Code 未安装警告 */}
+      {!claudeOk && (
+        <div className="flex items-center justify-between px-4 py-2 bg-[#3e1c1c] border-b border-[#f85149]/30 text-xs text-[#f85149]">
+          <span>⚠️ 未检测到 Claude Code CLI，请先安装：<code className="bg-[#562424] px-1.5 py-0.5 rounded ml-1">npm install -g @anthropic-ai/claude-code</code></span>
+          <button onClick={() => setClaudeOk(true)} className="text-[#f85149] hover:text-white ml-4">✕</button>
+        </div>
+      )}
       {/* 主区域 */}
       <div className="flex-1 flex overflow-hidden">
         {/* 侧栏 */}

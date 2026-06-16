@@ -85,10 +85,12 @@ npm run package
 
 ## 📋 前置要求
 
-- **Node.js** >= 22.x
-- **npm** >= 9.x
+- **Node.js** >= 22.x（仅开发时需要）
 - **Claude Code CLI** 已安装并可在终端运行（`claude` 命令可用）
+  - 安装：`npm install -g @anthropic-ai/claude-code`
 - Windows 10+ / macOS 12+ / Linux
+
+> 🔔 如果未安装 Claude Code CLI，桌面端启动后会显示红色提示条。
 
 ---
 

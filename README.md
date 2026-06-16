@@ -219,6 +219,10 @@ MIT
 
 ---
 
+> 🤖 本项目由 [Claude Code](https://claude.ai/code) (Anthropic) 辅助生成，包括代码、文档及自动化工作流设计。
+
+---
+
 ## 🙏 致谢
 
 - [Claude Code](https://claude.ai/code) - Anthropic 的 AI 编程 CLI 工具

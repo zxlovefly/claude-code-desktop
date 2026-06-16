@@ -93,10 +93,10 @@ export function TerminalView({ sessionId, visible }: TerminalViewProps) {
           if (sel) window.electron.clipboard.writeText(sel)
           return false
         }
-        // Ctrl+Shift+V → Paste
+        // Ctrl+Shift+V → Paste (into terminal buffer, NOT directly to PTY)
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
           const text = window.electron.clipboard.readText()
-          if (text) window.electron.send('terminal:input', sessionId, text)
+          if (text) terminal.paste(text)
           return false
         }
         // Ctrl+Insert → Copy
@@ -105,10 +105,10 @@ export function TerminalView({ sessionId, visible }: TerminalViewProps) {
           if (sel) window.electron.clipboard.writeText(sel)
           return false
         }
-        // Shift+Insert → Paste
+        // Shift+Insert → Paste (into terminal buffer)
         if (e.shiftKey && e.key === 'Insert') {
           const text = window.electron.clipboard.readText()
-          if (text) window.electron.send('terminal:input', sessionId, text)
+          if (text) terminal.paste(text)
           return false
         }
       }
@@ -119,13 +119,13 @@ export function TerminalView({ sessionId, visible }: TerminalViewProps) {
     containerRef.current!.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault()
       const sel = terminal.getSelection()
-      // If there's a selection, copy it automatically on right-click
+      // If there's a selection, copy it on right-click
       if (sel) {
         window.electron.clipboard.writeText(sel)
       } else {
-        // Otherwise paste
+        // Otherwise paste into terminal buffer (user confirms before sending)
         const text = window.electron.clipboard.readText()
-        if (text) window.electron.send('terminal:input', sessionId, text)
+        if (text) terminal.paste(text)
       }
     })
 

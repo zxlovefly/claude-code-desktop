@@ -1,6 +1,6 @@
 # Claude Code Desktop
 
-> 将 Claude Code CLI 封装为桌面应用，保留全部功能，并增加模型切换、流量监控、自动化工作流等高级特性。
+> 将 Claude Code CLI 封装为桌面应用，保留全部功能，并增加 PRD 撰写、竞品分析、原型设计、流量监控、自动化工作流等产品工具。
 
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![electron](https://img.shields.io/badge/electron-35.x-9feaf9)
@@ -8,9 +8,11 @@
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/📊-流量监控-green" />
-  <img src="https://img.shields.io/badge/🤖-自动化调度-orange" />
-  <img src="https://img.shields.io/badge/🌐-多标签会话-purple" />
+  <img src="https://img.shields.io/badge/📄-PRD 撰写-blue" />
+  <img src="https://img.shields.io/badge/📊-竞品分析-green" />
+  <img src="https://img.shields.io/badge/🎨-原型设计-orange" />
+  <img src="https://img.shields.io/badge/🤖-自动化调度-purple" />
+  <img src="https://img.shields.io/badge/📊-流量监控-teal" />
   <img src="https://img.shields.io/badge/⚠️-模型切换已移除-red" />
 </p>
 
@@ -25,11 +27,20 @@
 | **自动化调度引擎** | 预设 12 个模板 + 自定义表单，支持单次/每天/按间隔执行，精确到分钟 |
 | **多标签终端** | 不同目录并行运行多个 Claude Code 会话 |
 | **状态栏** | 实时显示当前模型、费用、会话数、工作目录 |
-| **模型只读展示** | 顶部栏和状态栏显示当前模型名称（切换请使用 `claude` CLI 的 `/model` 命令或直接编辑 settings.json） |
+| **PRD 撰写** | AI 辅助生成可开发级产品需求文档，含业务规则、交互逻辑、验收标准 |
+| **竞品分析** | 多维度竞品分析报告，支持 SWOT、波特五力、用户体验地图等框架 |
+| **原型设计** | 一句话需求生成 HTML 交互原型，内置 Frontend Design Skill 自动优化 UI |
+| **提示词库** | 精选 12 个高频场景 Prompt 模板（PRD/竞品/用户故事/技术评估等），支持自定义 |
+| **自动化调度引擎** | 预设模板 + 自定义表单，支持单次/每天/按间隔执行，精确到分钟 |
+| **实时流量监控** | 解析 `~/.claude/projects/*/session.jsonl`，展示 Token 消耗、缓存命中率、预估费用 |
+| **多标签终端** | 不同目录并行运行多个 Claude Code 会话 |
+| **状态栏** | 实时显示当前模型、费用、会话数、工作目录 |
 
 ---
 
 ## 🎬 界面
+
+![实现效果](实现效果.png)
 
 ---
 
@@ -142,11 +153,14 @@ src/
 ├── preload/                       # 安全通信桥
 │   └── index.ts
 ├── renderer/                      # React UI
-│   ├── App.tsx                    # 根组件
+│   ├── App.tsx                    # 根组件（路由 + 布局）
 │   ├── components/
 │   │   ├── Terminal/              # xterm.js 终端 + 多标签
+│   │   ├── Chat/                  # Chat 界面（消息列表、输入框、文件上传）
 │   │   ├── Sidebar/               # 流量监控、自动化面板
-│   │   └── StatusBar/             # 底部状态栏
+│   │   ├── Main/                  # 场景标签、Prompt 模板
+│   │   ├── Pages/                 # 产品工具页（PRD/竞品/原型/技能/提示词库）
+│   │   └── StatusBar/             # 底部状态栏（模型/Token/费用）
 │   └── stores/                    # Zustand 状态管理
 └── shared/                        # 共享类型定义
     └── types.ts

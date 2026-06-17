@@ -76,18 +76,17 @@ npm run package
 
 ## ⚠️ 重要提醒：模型切换功能已移除
 
-**请不要使用本应用进行模型切换操作。** 早期版本包含内置的模型切换 UI（可视化切换不同 AI 提供商的模型），但在实际使用中发现了以下问题：
+**请不要使用本应用进行模型切换操作。** 早期版本包含内置的模型切换 UI（可视化切换不同 AI 提供商的模型），但在实际使用中可能出现以下问题：
 
-### 已修复的关键 Bug
+### 可能出现的 Bug
 
-| Bug | 原因 | 解决方案 |
-|---|---|---|
-| **切换到其他厂商后无法切回原厂商** | `switchModel()` 的 key 解析回退链会读取正在修改中的 `env` 副本，导致跨厂商的 `ANTHROPIC_AUTH_TOKEN` 污染 — DeepSeek 的 key 被写到 `ANTHROPIC_AUTH_TOKEN`，切回 Claude 时读到的仍是 DeepSeek 的 key | 改为 `keys.json[providerId]` 按厂商 ID 精准匹配，移除了跨厂商回退链 |
-| **Sidebar 配置 Key 后模型列表不更新** | `handleSetApiKey()` 只调用了 `config:set` 写入 `settings.json`，没写入 `keys.json`，导致 `switchModel` 按 `keys.json[providerId]` 查找不到 key | 配置 Key 时同时写入 `keys.json` 和 `settings.json` |
-| **自动化执行卡死** | `handleAutomationExecute()` 和 `handleUsePrompt()` 在 auto-send 路径下直接调用 `chat:send-message`，与正在进行的 stream 产生竞态条件，`session.abortController?.abort()` 可能杀死当前活跃请求 | 取消所有 auto-send 逻辑，改为仅填充输入框，用户按 Enter 发送 |
-| **切页面后 prompt 重复填充** | auto-send 路径不经过 ChatInput 的 `onConsumed()`，`filledPrompt` 未被清空，用户切页再回来时重新填充 | auto-send 路径不再设置 `filledPrompt`，仅「填入输入框」时才设置 |
-| **技能开关小白圈越界** | 使用 `left-0.5` / `right-0.5` 定位，圈圈颜色始终是白色 | 改用 `translate-x` 精确控制位移（40px 胶囊内保持 2px 边距），圈圈跟随状态变色（关=灰色，开=紫色） |
-| **Chat Service key 解析不一致** | `getApiConfig()` 先查 `keys.json[providerId]`，找不到时回退到 `env.ANTHROPIC_AUTH_TOKEN`，可能拿到其他厂商的 key | 同样改为 `keys.json[providerId]` 为唯一权威来源，移除回退链 |
+| 问题 | 触发条件 |
+|---|---|
+| **切换到其他厂商后无法切回原厂商** | key 解析回退链可能读取正在修改中的 `env` 副本，导致跨厂商的 `ANTHROPIC_AUTH_TOKEN` 污染 — DeepSeek 的 key 被写到 `ANTHROPIC_AUTH_TOKEN`，切回 Claude 时读到的仍是 DeepSeek 的 key |
+| **在 Sidebar 配置 Key 后模型列表不更新** | `handleSetApiKey()` 只调用了 `config:set` 写入 `settings.json`，没写入 `keys.json`，导致 `switchModel` 按 `keys.json[providerId]` 查找不到 key |
+| **自动化执行卡死** | auto-send 路径下直接调用 `chat:send-message` 可能与正在进行的 stream 产生竞态条件，`session.abortController?.abort()` 可能杀死当前活跃请求 |
+| **切页面后 prompt 重复填充** | auto-send 路径不经过 ChatInput 的 `onConsumed()`，`filledPrompt` 未被清空，切页再回来时重新填充 |
+| **Chat Service key 解析拿到错误的 Key** | `getApiConfig()` 找不到 `keys.json[providerId]` 时回退到 `env.ANTHROPIC_AUTH_TOKEN`，可能拿到其他厂商的 key，导致 API 调用失败或费用异常 |
 
 ### 建议做法
 

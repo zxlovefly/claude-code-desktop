@@ -10,6 +10,7 @@ import { PrdPage } from './components/Pages/PrdPage'
 import { AnalysisPage } from './components/Pages/AnalysisPage'
 import { PrototypePage } from './components/Pages/PrototypePage'
 import { AutomationPanel } from './components/Sidebar/AutomationPanel'
+import { Sidebar } from './components/Sidebar/Sidebar'
 import { Mascot } from './components/Icons'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
@@ -194,17 +195,22 @@ export default function App() {
           </div>
         </div>
 
-        <ScenarioTabs activeScenario={scenario} onScenarioChange={setScenario} />
-        <div className="flex-1 flex flex-col min-h-0 bg-[#f5f6f8]">
-          <div className="flex-1 min-h-0">
-            <ChatTerminalView
-              sessionId={chatSessionId} visible={true}
-              scenario={scenario} onPromptFill={setFilledPrompt}
-              filledPrompt={filledPrompt} workspace={workspace}
-              onWorkspaceChange={setWorkspace}
-              autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
-            />
+        <div className="flex flex-1 min-h-0">
+          <div className="flex flex-col min-h-0 flex-1">
+            <ScenarioTabs activeScenario={scenario} onScenarioChange={setScenario} />
+            <div className="flex-1 flex flex-col min-h-0 bg-[#f5f6f8]">
+              <div className="flex-1 min-h-0">
+                <ChatTerminalView
+                  sessionId={chatSessionId} visible={true}
+                  scenario={scenario} onPromptFill={setFilledPrompt}
+                  filledPrompt={filledPrompt} workspace={workspace}
+                  onWorkspaceChange={setWorkspace}
+                  autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
+                />
+              </div>
+            </div>
           </div>
+          <Sidebar />
         </div>
       </div>
     </div>

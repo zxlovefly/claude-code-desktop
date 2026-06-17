@@ -5,13 +5,21 @@ const { clipboard } = require('electron')
 const allowedSendChannels = ['terminal:input', 'terminal:resize']
 const allowedInvokeChannels = [
   'terminal:create', 'terminal:kill', 'terminal:list',
-  'model:list', 'model:current', 'model:switch',
+  'model:current',
   'config:get', 'config:set',
   'proxy:status', 'proxy:toggle',
   'scheduler:list', 'scheduler:add', 'scheduler:update', 'scheduler:delete', 'scheduler:toggle', 'scheduler:runNow',
   'app:get-version', 'app:cwd', 'app:check-claude',
+  'chat:create-session', 'chat:delete-session', 'chat:send-message', 'chat:cancel',
+  'ai:generate',
+  'keys:save',
+  'dialog:open-file', 'dialog:open-directory',
 ]
-const allowedReceiveChannels = ['terminal:data', 'terminal:exit', 'proxy:stats', 'scheduler:executed']
+const allowedReceiveChannels = [
+  'terminal:data', 'terminal:exit',
+  'proxy:stats', 'scheduler:executed',
+  'chat:delta', 'chat:tool-result', 'chat:done', 'chat:cancelled', 'chat:error',
+]
 
 export interface ElectronAPI {
   send: (channel: string, ...args: unknown[]) => void

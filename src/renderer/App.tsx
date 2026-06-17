@@ -1,116 +1,212 @@
-import { useEffect, useRef, useState } from 'react'
-import { Allotment } from 'allotment'
-import { Sidebar } from './components/Sidebar/Sidebar'
-import { TerminalView } from './components/Terminal/TerminalView'
-import { TerminalTabs } from './components/Terminal/TerminalTabs'
-import { StatusBar } from './components/StatusBar/StatusBar'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { LeftNav } from './components/Sidebar/LeftNav'
+import type { NavPage } from './components/Sidebar/LeftNav'
+import { ScenarioTabs } from './components/Main/ScenarioTabs'
+import type { Scenario } from './components/Main/ScenarioTabs'
+import { ChatTerminalView } from './components/Chat/ChatTerminalView'
+import { SkillsPage } from './components/Pages/SkillsPage'
+import { PromptLibraryPage } from './components/Pages/PromptLibraryPage'
+import { PrdPage } from './components/Pages/PrdPage'
+import { AnalysisPage } from './components/Pages/AnalysisPage'
+import { PrototypePage } from './components/Pages/PrototypePage'
+import { AutomationPanel } from './components/Sidebar/AutomationPanel'
+import { Mascot } from './components/Icons'
 import { useSessionStore } from './stores/sessionStore'
-import { useModelStore } from './stores/modelStore'
+import { useChatStore } from './stores/chatStore'
 import { useMonitorStore } from './stores/monitorStore'
+
+interface CurrentModel {
+  provider: string
+  modelId: string
+  display: string
+  baseUrl: string
+  configured: boolean
+}
 
 export default function App() {
   const { sessions, activeSessionId, createSession } = useSessionStore()
-  const { setCurrentModel, setProviders } = useModelStore()
   const { setStats } = useMonitorStore()
+  const initConversation = useChatStore(s => s.initConversation)
   const initialized = useRef(false)
-  const [claudeOk, setClaudeOk] = useState(true)
 
-  // 初始化：创建会话、加载模型、监听流量
+  const [navPage, setNavPage] = useState<NavPage>('new-task')
+  const [scenario, setScenario] = useState<Scenario>('code')
+  const [filledPrompt, setFilledPrompt] = useState('')
+  const [autoSendPrompt, setAutoSendPrompt] = useState('')
+  const [workspace, setWorkspace] = useState('')
+  const [chatSessionId] = useState(() => 'chat-' + Date.now())
+  const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
+  // Tool page session IDs (separate from chat)
+  const [prdSessionId] = useState(() => 'prd-' + Date.now())
+  const [analysisSessionId] = useState(() => 'ana-' + Date.now())
+  const [protoSessionId] = useState(() => 'proto-' + Date.now())
+
   useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
+    if (initialized.current) return; initialized.current = true
+    window.electron.invoke('terminal:create', '').then((s: unknown) => { if (s) createSession(s as any) })
+    window.electron.invoke('app:cwd').then((cwd: unknown) => { if (cwd) setWorkspace(cwd as string) })
+    window.electron.invoke('model:current').then((d: unknown) => { if (d) setCurrentModel(d as CurrentModel) })
+    window.electron.receive('proxy:stats', (s: unknown) => setStats(s as any))
 
-    // 检测 Claude Code CLI 是否安装
-    window.electron.invoke('app:check-claude').then((result: any) => {
-      if (!result?.installed) setClaudeOk(false)
-    })
+    // Create main chat session (permanent — not tied to ChatTerminalView mount)
+    window.electron.invoke('chat:create-session', chatSessionId)
+    initConversation(chatSessionId)
 
-    // 创建第一个终端会话
-    window.electron.invoke('terminal:create', '').then((session: unknown) => {
-      if (session) createSession(session as Parameters<typeof createSession>[0])
-    })
+    // ── Permanent chat event listeners ──
+    const unsubs: (() => void)[] = []
 
-    // 加载模型列表
-    window.electron.invoke('model:list').then((data: unknown) => {
-      setProviders(data)
-    })
+    unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
+      if (sId !== chatSessionId) return
+      const store = useChatStore.getState()
+      const msgs = store.getMessages(chatSessionId)
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.streaming) {
+        store.updateLastMessage(chatSessionId, last.content + (text as string), true)
+      }
+    }))
 
-    // 加载当前模型
-    window.electron.invoke('model:current').then((data: unknown) => {
-      if (data) setCurrentModel(data)
-    })
+    unsubs.push(window.electron.receive('chat:tool-result', (sId: unknown, info: unknown) => {
+      if (sId !== chatSessionId) return
+      const { name, result } = info as any
+      const store = useChatStore.getState()
+      const msgs = store.getMessages(chatSessionId)
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.streaming) {
+        store.updateLastMessage(chatSessionId, last.content + `\n\n**${name}**\n\`\`\`\n${result}\n\`\`\``, true)
+      }
+    }))
 
-    // 监听流量数据
-    window.electron.receive('proxy:stats', (stats: unknown) => {
-      setStats(stats as Parameters<typeof setStats>[0])
-    })
+    unsubs.push(window.electron.receive('chat:done', (sId: unknown) => {
+      if (sId !== chatSessionId) return
+      const store = useChatStore.getState()
+      const msgs = store.getMessages(chatSessionId)
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.streaming) {
+        store.updateLastMessage(chatSessionId, last.content, false)
+      }
+      store.setStreaming(false)
+    }))
 
-    // 全局监听调度器执行事件（不受 tab 切换影响）
-    window.electron.receive('scheduler:executed', async (task: any) => {
-      console.log('[App] Scheduler fired:', task?.name)
-      const session: any = await window.electron.invoke('terminal:create', '')
-      if (session) {
-        createSession(session as Parameters<typeof createSession>[0])
-        useSessionStore.getState().setActiveSession(session.id)
-        setTimeout(() => {
-          window.electron.send('terminal:input', session.id, (task?.prompt || '') + '\r')
-        }, 4000)
+    unsubs.push(window.electron.receive('chat:cancelled', (sId: unknown) => {
+      if (sId !== chatSessionId) return
+      const store = useChatStore.getState()
+      const msgs = store.getMessages(chatSessionId)
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.streaming) {
+        store.updateLastMessage(chatSessionId, last.content + '\n\n*[已取消]*', false)
+      }
+      store.setStreaming(false)
+    }))
+
+    unsubs.push(window.electron.receive('chat:error', (sId: unknown, message: unknown) => {
+      if (sId !== chatSessionId) return
+      const store = useChatStore.getState()
+      const msgs = store.getMessages(chatSessionId)
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.streaming) {
+        store.updateLastMessage(chatSessionId, last.content || `Error: ${message}`, false)
+      } else {
+        store.addMessage(chatSessionId, {
+          id: 'err-' + Date.now(),
+          role: 'assistant' as const,
+          content: `Error: ${message}`,
+          timestamp: Date.now(),
+        })
+      }
+      store.setStreaming(false)
+    }))
+
+    // Listen for scheduler task executions — auto-send to chat
+    window.electron.receive('scheduler:executed', (task: unknown) => {
+      const t = task as any
+      if (t?.prompt) {
+        setAutoSendPrompt(t.prompt)
+        setNavPage('new-task')
       }
     })
+
+    return () => { unsubs.forEach(fn => fn()) }
   }, [])
 
-  const activeSession = sessions.find(s => s.id === activeSessionId)
-  const hasSessions = sessions.length > 0
+  const handleResume = useCallback((convId: string) => {
+    useChatStore.getState().setPendingResume(convId)
+    setNavPage('new-task')
+  }, [])
+
+  const handleAutomationExecute = useCallback((prompt: string) => {
+    setAutoSendPrompt(prompt)
+    setNavPage('new-task')
+  }, [])
+
+  // Pages that are NOT the chat view
+  const isChatPage = navPage === 'new-task'
+
+  // Tool pages (no header/ZXCODE branding)
+  if (navPage === 'prd' || navPage === 'analysis' || navPage === 'prototype') {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden bg-[#f5f6f8]">
+        <LeftNav activePage={navPage} onNavigate={setNavPage} />
+        <div className="flex-1 flex flex-col min-w-0">
+          {navPage === 'prd' && <PrdPage sessionId={prdSessionId} />}
+          {navPage === 'analysis' && <AnalysisPage sessionId={analysisSessionId} />}
+          {navPage === 'prototype' && <PrototypePage sessionId={protoSessionId} />}
+        </div>
+      </div>
+    )
+  }
+
+  // Non-chat pages
+  if (!isChatPage) {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden bg-[#f5f6f8]">
+        <LeftNav activePage={navPage} onNavigate={setNavPage} />
+        <div className="flex-1 flex flex-col min-w-0">
+          {navPage === 'experts' && <SkillsPage />}
+          {navPage === 'automation' && <AutomationPanel onExecute={handleAutomationExecute} />}
+          {navPage === 'prompts' && <PromptLibraryPage />}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117]">
-      {/* Claude Code 未安装警告 */}
-      {!claudeOk && (
-        <div className="flex items-center justify-between px-4 py-2 bg-[#3e1c1c] border-b border-[#f85149]/30 text-xs text-[#f85149]">
-          <span>⚠️ 未检测到 Claude Code CLI，请先安装：<code className="bg-[#562424] px-1.5 py-0.5 rounded ml-1">npm install -g @anthropic-ai/claude-code</code></span>
-          <button onClick={() => setClaudeOk(true)} className="text-[#f85149] hover:text-white ml-4">✕</button>
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f5f6f8]">
+      <LeftNav activePage={navPage} onNavigate={setNavPage} />
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-[#e5e6eb] select-none">
+          <div className="flex items-center gap-3">
+            <Mascot />
+            <div>
+              <h1 className="text-lg font-extrabold text-[#1a1a2e] tracking-tight leading-none">ZXCODE</h1>
+              <p className="text-[10px] text-[#9a9ab0] mt-0.5">AI 智能开发助手</p>
+            </div>
+          </div>
+
+          {/* Static model display — read-only */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#e5e6eb] text-xs select-none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+            <span className="text-[#1a1a2e] font-medium max-w-[160px] truncate">
+              {currentModel?.display || '选择模型'}
+            </span>
+          </div>
         </div>
-      )}
-      {/* 主区域 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 侧栏 */}
-        <Sidebar />
 
-        {/* 终端区域 */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <TerminalTabs />
-
-          {/* 终端面板 */}
-          <div className="flex-1 relative">
-            {hasSessions ? (
-              <Allotment>
-                {sessions.map((session) => (
-                  <Allotment.Pane key={session.id} visible={session.id === activeSessionId}>
-                    <TerminalView
-                      sessionId={session.id}
-                      visible={session.id === activeSessionId}
-                    />
-                  </Allotment.Pane>
-                ))}
-              </Allotment>
-            ) : (
-              <div className="flex items-center justify-center h-full select-none">
-                <div className="text-center">
-                  <svg className="mx-auto mb-4 opacity-20" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" />
-                    <path d="M8 12l3 3 5-5" />
-                  </svg>
-                  <div className="text-sm text-[#8b949e]">点击 + 创建新会话</div>
-                  <div className="text-xs text-[#484f58] mt-1">快捷键 Ctrl+N</div>
-                </div>
-              </div>
-            )}
+        <ScenarioTabs activeScenario={scenario} onScenarioChange={setScenario} />
+        <div className="flex-1 flex flex-col min-h-0 bg-[#f5f6f8]">
+          <div className="flex-1 min-h-0">
+            <ChatTerminalView
+              sessionId={chatSessionId} visible={true}
+              scenario={scenario} onPromptFill={setFilledPrompt}
+              filledPrompt={filledPrompt} workspace={workspace}
+              onWorkspaceChange={setWorkspace}
+              autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
+            />
           </div>
         </div>
       </div>
-
-      {/* 状态栏 */}
-      <StatusBar />
     </div>
   )
 }

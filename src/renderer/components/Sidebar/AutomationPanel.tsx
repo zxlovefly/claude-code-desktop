@@ -1,328 +1,200 @@
 import { useState, useEffect } from 'react'
-import { useSessionStore } from '../../stores/sessionStore'
-
-// ── Templates (from 1.png) ──
-
-const TEMPLATES = [
-  { id: 'ai-news', title: '每日 AI 新闻推送', desc: '关注当天 AI 领域的重要动态', icon: '📰',
-    prompt: '帮我整理今天 AI 领域的重要新闻和动态，按重要性排序，每条附简要说明和来源链接',
-    freq: 'daily' as const, time: '08:00' },
-  { id: 'eng-words', title: '每日 5 个英语单词', desc: '每天推荐 5 个高频实用英语单词', icon: '📝',
-    prompt: '推荐 5 个高频实用英语单词，每个给出中英文释义、词性、以及一个实用例句',
-    freq: 'daily' as const, time: '09:00' },
-  { id: 'bedtime-story', title: '每日儿童睡前故事', desc: '生成 3-5 分钟温和睡前故事', icon: '🌙',
-    prompt: '生成一个适合 4-8 岁儿童的温和睡前故事，3-5 分钟可读完，主题温馨有趣',
-    freq: 'daily' as const, time: '20:30' },
-  { id: 'weekly-report', title: '每周工作周报', desc: '每周五汇总 PR 与 Issue 进展', icon: '📊',
-    prompt: '帮我汇总本周所有的 Git 提交、PR 和 Issue 进展，生成一份结构化的周报',
-    freq: 'daily' as const, time: '17:00' },
-  { id: 'movie-rec', title: '经典电影推荐', desc: '每日推荐一部高分经典电影', icon: '🎬',
-    prompt: '推荐一部高分经典电影（8.0+），简要介绍剧情、导演、主演和推荐理由',
-    freq: 'daily' as const, time: '12:00' },
-  { id: 'today-history', title: '历史上的今天', desc: '挑选一件历史上的重大事件', icon: '📅',
-    prompt: '告诉我历史上的今天发生了什么重要事件（科技、文化、政治等领域均可），简要介绍背景和影响',
-    freq: 'daily' as const, time: '07:00' },
-  { id: 'daily-why', title: '每日一个为什么', desc: '每天抛出一个有趣问题，先提问再解答', icon: '❓',
-    prompt: '提出一个有趣的科学或生活问题，先抛出问题让读者思考，再给出详细解答。问题要有趣、有启发性',
-    freq: 'daily' as const, time: '10:00' },
-  { id: 'family-reminder', title: '父母联系提醒', desc: '每周日提醒给家人打电话', icon: '📞',
-    prompt: '今天周日，请温馨提醒我：该给家人打个电话或发消息问候了。附上一句温暖的问候语',
-    freq: 'daily' as const, time: '10:00' },
-  { id: 'checkup-reminder', title: '体检预约提醒', desc: '指定日期提醒体检', icon: '🏥',
-    prompt: '体检提醒：请确认体检预约日期和时间，列出体检前需要注意的事项（空腹、携带证件等）',
-    freq: 'once' as const, time: '07:00' },
-  { id: 'interview-prep', title: '面试准备提醒', desc: '每 2 小时抽查大模型面试题', icon: '💼',
-    prompt: '大模型面试抽查：随机出 3 道 LLM/深度学习相关面试题，涵盖 Transformer 架构、注意力机制、RLHF、训练优化等方向，并给出参考答案',
-    freq: 'interval' as const, mins: 120 },
-  { id: 'meeting-prep', title: '会议前准备', desc: '提醒整理议题与目标', icon: '📋',
-    prompt: '会议准备清单：请帮我梳理今天即将参加的会议，列出需要准备的议题、目标和待决策事项',
-    freq: 'daily' as const, time: '08:30' },
-  { id: 'pet-wallpaper', title: '可爱萌宠手机壁纸', desc: '随机风格描述萌宠画面', icon: '🐱',
-    prompt: '用文字描述一张可爱的萌宠手机壁纸画面，包含宠物种类、场景、色调和风格（随机选择7种风格之一），可以直接用作 AI 绘图 prompt',
-    freq: 'daily' as const, time: '06:00' },
-]
-
-// ── Types ──
 
 interface Task {
-  id: string; name: string; prompt: string; frequency: string
-  dailyTime: string; intervalMinutes: number; activeFrom: string; activeTo: string
-  enabled: boolean; skill: string; lastRunAt: number | null
+  id: string; name: string; prompt: string; frequency: string; dailyTime: string; enabled: boolean; intervalMinutes?: number; weekDay?: number
 }
 
-const emptyForm = {
-  name: '', prompt: '', frequency: 'daily' as const, dailyTime: '09:00',
-  intervalMinutes: 60, activeFrom: '', activeTo: '', skill: '',
-}
+const PRESETS = [
+  { name: '每日代码审查', prompt: '帮我审查今天提交的代码，检查潜在bug、安全隐患、代码风格问题，并给出改进建议。', freq: 'daily', time: '09:00' },
+  { name: '生成工作周报', prompt: '帮我根据本周的代码提交记录和项目进展生成一份结构化周报，包含：关键成果、进行中工作、风险项、下周计划。', freq: 'weekly', time: '17:00' },
+  { name: '项目健康巡检', prompt: '帮我检查当前项目的依赖版本、安全漏洞(CVE)、测试覆盖率、代码质量指标(圈复杂度/重复率)、文档完整度，并给出综合健康评分。', freq: 'weekly', time: '08:00' },
+  { name: '技术资讯摘要', prompt: '帮我整理今天人工智能和前端开发领域的最新技术资讯、重要发布、社区热点，用中文简要总结。', freq: 'daily', time: '10:00' },
+  { name: '代码库更新日报', prompt: '帮我总结过去24小时内代码库的所有变更：新增功能、Bug修复、重构、依赖更新，按影响程度排序。', freq: 'daily', time: '08:30' },
+  { name: 'API 文档同步检查', prompt: '检查当前项目的API文档是否与代码实现一致，列出不一致的地方并建议修复方案。', freq: 'weekly', time: '14:00' },
+  { name: '数据库备份提醒', prompt: '检查数据库备份策略是否正常运行，确认最近一次备份的时间和完整性，如有问题请告警。', freq: 'daily', time: '06:00' },
+  { name: '安全漏洞扫描', prompt: '扫描项目依赖中是否存在已知安全漏洞(CVE)，特别是Critical和High级别的漏洞，并提供修复建议。', freq: 'weekly', time: '03:00' },
+]
 
-// ── Panel ──
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-export function AutomationPanel() {
-  const activeId = useSessionStore(s => s.activeSessionId)
-  const [view, setView] = useState<'templates' | 'add' | 'list'>('templates')
+interface Props { onExecute: (prompt: string) => void }
+
+export function AutomationPanel({ onExecute }: Props) {
   const [tasks, setTasks] = useState<Task[]>([])
-  const [form, setForm] = useState({ ...emptyForm })
-  const [msg, setMsg] = useState('')
-
-  // Load tasks from scheduler
-  useEffect(() => {
-    window.electron.invoke('scheduler:list').then((data: any) => {
-      if (Array.isArray(data)) setTasks(data)
-    })
-  }, [view])
-
-  const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 3000) }
-
-  // ── Actions ──
-
-  const useTemplate = (tpl: typeof TEMPLATES[0]) => {
-    setForm({
-      name: tpl.title,
-      prompt: tpl.prompt,
-      frequency: tpl.freq,
-      dailyTime: (tpl as any).time || '09:00',
-      intervalMinutes: (tpl as any).mins || 60,
-      activeFrom: '', activeTo: '', skill: '',
-    })
-    setView('add')
-  }
-
+  const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState({ name: '', prompt: '', frequency: 'daily', dailyTime: '09:00', intervalMinutes: 60, weekDay: 1 })
+  const [activeTab, setActiveTab] = useState<'presets' | 'tasks'>('presets')
 
-  const handleAdd = async () => {
-    if (!form.name.trim() || !form.prompt.trim()) return
-    const taskData = {
-      name: form.name, prompt: form.prompt,
-      frequency: form.frequency, dailyTime: form.dailyTime,
-      intervalMinutes: form.intervalMinutes,
-      activeFrom: form.activeFrom, activeTo: form.activeTo,
-      skill: form.skill,
-    }
-    if (editingId) {
-      await window.electron.invoke('scheduler:update', editingId, taskData)
-    } else {
-      await window.electron.invoke('scheduler:add', taskData)
-    }
-    setForm({ ...emptyForm })
-    setEditingId(null)
-    setView('list')
-    showMsg(editingId ? '✅ 任务已更新' : '✅ 任务已添加')
+  useEffect(() => { refresh() }, [])
+
+  const refresh = async () => {
+    const data: any = await window.electron.invoke('scheduler:list')
+    if (Array.isArray(data)) setTasks(data)
   }
 
-  const handleEdit = (task: Task) => {
-    setForm({
-      name: task.name, prompt: task.prompt,
-      frequency: task.frequency as any, dailyTime: task.dailyTime,
-      intervalMinutes: task.intervalMinutes,
-      activeFrom: task.activeFrom, activeTo: task.activeTo,
-      skill: task.skill || '',
-    })
-    setEditingId(task.id)
-    setView('add')
+  const addTask = async () => {
+    if (!form.name || !form.prompt) return
+    await window.electron.invoke('scheduler:add', { name: form.name, prompt: form.prompt, frequency: form.frequency, dailyTime: form.dailyTime, intervalMinutes: form.intervalMinutes, weekDay: form.weekDay })
+    setForm({ name: '', prompt: '', frequency: 'daily', dailyTime: '09:00', intervalMinutes: 60, weekDay: 1 }); setShowAdd(false); refresh()
   }
 
-  const handleDelete = async (id: string) => {
-    await window.electron.invoke('scheduler:delete', id)
-    setTasks(prev => prev.filter(t => t.id !== id))
-    showMsg('已删除')
-  }
-
-  const handleRunNow = async (task: Task) => {
-    // Create terminal session directly, then send prompt
-    const desktop = ''
-    const session: any = await window.electron.invoke('terminal:create', desktop)
-    if (!session) { showMsg('创建终端失败'); return }
-    useSessionStore.getState().createSession(session)
-    useSessionStore.getState().setActiveSession(session.id)
-    setTimeout(() => {
-      window.electron.send('terminal:input', session.id, task.prompt + '\r')
-      showMsg('▶ 已执行: ' + task.name)
-    }, 4000)
-  }
-
-  const handleToggle = async (id: string, enabled: boolean) => {
-    await window.electron.invoke('scheduler:toggle', id, enabled)
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, enabled } : t))
+  const addPreset = async (p: typeof PRESETS[0]) => {
+    await window.electron.invoke('scheduler:add', { name: p.name, prompt: p.prompt, frequency: p.freq, dailyTime: p.time, intervalMinutes: 60, weekDay: 1 })
+    refresh()
   }
 
   const freqLabel = (t: Task) => {
-    if (t.frequency === 'once') return '单次'
-    if (t.frequency === 'daily') return `每天 ${t.dailyTime}`
-    if (t.frequency === 'interval') return `每 ${t.intervalMinutes} 分钟`
-    return t.frequency
+    switch (t.frequency) {
+      case 'daily': return `每天 ${t.dailyTime || '09:00'}`
+      case 'weekly': return `每${WEEKDAYS[t.weekDay || 1]} ${t.dailyTime || '09:00'}`
+      case 'interval': return `每 ${t.intervalMinutes || 60} 分钟`
+      case 'once': return t.dailyTime ? `单次 ${t.dailyTime}` : '单次执行'
+      default: return t.frequency
+    }
   }
 
-  // ── Render ──
-
-  const tabClass = (v: string) =>
-    `flex-1 py-1 text-[10px] rounded transition-colors ${view === v ? 'bg-[#21262d] text-[#e6edf3]' : 'text-[#8b949e] hover:text-[#e6edf3]'}`
-
   return (
-    <div className="flex flex-col animate-slide-in">
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-[#30363d]">
-        <button onClick={() => setView('templates')} className={tabClass('templates')}>模板</button>
-        <button onClick={() => setView('add')} className={tabClass('add')}>+ 添加</button>
-        <button onClick={() => setView('list')} className={tabClass('list')}>我的任务{tasks.length > 0 ? ` (${tasks.length})` : ''}</button>
+    <div className="flex flex-col h-full bg-[#f5f6f8]">
+      <div className="px-4 py-3 bg-white border-b border-[#e5e6eb]">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-[#1a1a2e]">自动化</h2>
+            <p className="text-[10px] text-[#9a9ab0] mt-0.5">定时 AI 任务 · {tasks.length} 个活跃任务 · 点击执行可发送到 Chat</p>
+          </div>
+          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#5a4bd1]">+ 新建</button>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 mt-3">
+          <button onClick={() => setActiveTab('presets')} className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${activeTab === 'presets' ? 'bg-[#6c5ce7] text-white' : 'text-[#4a4a6a] bg-[#f0f0f5] hover:bg-[#e5e5f0]'}`}>推荐模板 ({PRESETS.length})</button>
+          <button onClick={() => setActiveTab('tasks')} className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${activeTab === 'tasks' ? 'bg-[#6c5ce7] text-white' : 'text-[#4a4a6a] bg-[#f0f0f5] hover:bg-[#e5e5f0]'}`}>我的任务 ({tasks.length})</button>
+        </div>
+
+        {/* Add form */}
+        {showAdd && (
+          <div className="mt-3 p-3 bg-[#f5f6f8] rounded-xl border border-[#e5e6eb] space-y-2">
+            <input placeholder="任务名称 *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-white border border-[#e5e6eb] rounded-lg px-3 py-1.5 text-xs outline-none focus:border-[#6c5ce7]" />
+            <textarea placeholder="AI 指令内容 *" value={form.prompt} onChange={e => setForm({ ...form, prompt: e.target.value })} rows={3} className="w-full bg-white border border-[#e5e6eb] rounded-lg px-3 py-1.5 text-xs outline-none focus:border-[#6c5ce7] resize-none" />
+            <div className="flex gap-2 flex-wrap items-center">
+              <select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="bg-white border border-[#e5e6eb] rounded-lg px-2 py-1 text-xs outline-none">
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="interval">间隔(分钟)</option>
+                <option value="once">一次性</option>
+              </select>
+              {(form.frequency === 'daily' || form.frequency === 'weekly' || (form.frequency === 'once' && form.dailyTime)) && (
+                <input type="time" value={form.dailyTime} onChange={e => setForm({ ...form, dailyTime: e.target.value })} className="bg-white border border-[#e5e6eb] rounded-lg px-2 py-1 text-xs outline-none" />
+              )}
+              {form.frequency === 'weekly' && (
+                <select value={form.weekDay} onChange={e => setForm({ ...form, weekDay: +e.target.value })} className="bg-white border border-[#e5e6eb] rounded-lg px-2 py-1 text-xs outline-none">
+                  {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              )}
+              {form.frequency === 'interval' && (
+                <div className="flex items-center gap-1">
+                  <input type="number" placeholder="60" value={form.intervalMinutes} onChange={e => setForm({ ...form, intervalMinutes: +e.target.value })} className="w-20 bg-white border border-[#e5e6eb] rounded-lg px-2 py-1 text-xs outline-none" />
+                  <span className="text-[10px] text-[#9a9ab0]">分钟</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2"><button onClick={addTask} className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-[10px] font-medium">创建</button><button onClick={() => setShowAdd(false)} className="px-3 py-1 bg-[#f0f0f5] text-[#4a4a6a] rounded-lg text-[10px]">取消</button></div>
+          </div>
+        )}
       </div>
 
-      {/* Message toast */}
-      {msg && <div className="px-3 py-1.5 text-[10px] text-[#3fb950] bg-[#1c2e1c]">{msg}</div>}
-
-      {/* ── Templates ── */}
-      {view === 'templates' && (
-        <div className="py-1">
-          <div className="px-3 py-1.5 text-[10px] text-[#484f58] uppercase tracking-wider">
-            点击模板 → 自动填充表单
-          </div>
-          {TEMPLATES.map(t => (
-            <button
-              key={t.id}
-              onClick={() => useTemplate(t)}
-              className="w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-[#21262d] border-l-2 border-transparent hover:border-[#30363d] transition-colors cursor-pointer"
-            >
-              <span className="text-base flex-shrink-0 mt-0.5">{t.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-[#e6edf3] font-medium">{t.title}</div>
-                <div className="text-[10px] text-[#8b949e] leading-snug mt-0.5">{t.desc}</div>
-                <div className="text-[10px] text-[#58a6ff] mt-1">
-                  {t.freq === 'daily' ? `每天 ${(t as any).time}` : t.freq === 'interval' ? `每 ${(t as any).mins} 分钟` : '单次'}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+        {activeTab === 'presets' && (
+          <div>
+            <h3 className="text-[11px] font-semibold text-[#4a4a6a] mb-2">推荐模板 · 点击使用或添加到我的任务</h3>
+            <div className="space-y-2">
+              {PRESETS.map((p, i) => (
+                <div key={i} className="bg-white border border-[#e5e6eb] rounded-xl p-3 flex items-start justify-between hover:border-[#6c5ce7]/20 hover:shadow-sm transition-all">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[#1a1a2e]">{p.name}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#6c5ce7]/8 text-[#6c5ce7] font-medium">{p.freq === 'daily' ? '每天' : '每周'} {p.time}</span>
+                    </div>
+                    <div className="text-[10px] text-[#9a9ab0] mt-0.5 line-clamp-2">{p.prompt}</div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0 ml-2">
+                    <button onClick={() => { onExecute(p.prompt); addPreset(p) }} className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded text-[9px] font-medium hover:bg-[#5a4bd1]">执行</button>
+                    <button onClick={() => addPreset(p)} className="px-2.5 py-1.5 bg-[#f0f0f5] text-[#4a4a6a] rounded text-[9px] hover:bg-[#e5e5f0]">添加</button>
+                  </div>
                 </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Add form ── */}
-      {view === 'add' && (
-        <div className="p-3 space-y-3">
-          <div className="text-xs text-[#e6edf3] font-semibold">{editingId ? '编辑自动化任务' : '添加自动化任务'}</div>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-[#8b949e]">名称 *</span>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="例如：每日 AI 新闻" className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-xs text-[#e6edf3] outline-none focus:border-[#58a6ff]" />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-[#8b949e]">提示词 *</span>
-            <textarea value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))}
-              placeholder="输入 Claude Code 要执行的提示词..." rows={4}
-              className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-xs text-[#e6edf3] outline-none focus:border-[#58a6ff] resize-none" />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-[#8b949e]">技能（可选）</span>
-            <select value={form.skill} onChange={e => setForm(f => ({ ...f, skill: e.target.value }))}
-              className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-xs text-[#e6edf3] outline-none">
-              <option value="">不使用技能</option>
-              <option value="/code-review">/code-review</option>
-              <option value="/security-review">/security-review</option>
-              <option value="/simplify">/simplify</option>
-              <option value="/diagnose">/diagnose</option>
-              <option value="/verify">/verify</option>
-            </select>
-          </label>
-
-          {/* 频率 */}
-          <div className="space-y-2">
-            <span className="text-[10px] text-[#8b949e]">执行频率</span>
-            <div className="flex gap-1">
-              {(['once', 'daily', 'interval'] as const).map(f => (
-                <button key={f}
-                  onClick={() => setForm(x => ({ ...x, frequency: f }))}
-                  className={`flex-1 py-1 text-[10px] rounded ${form.frequency === f ? 'bg-[#1c2a3e] text-[#58a6ff]' : 'bg-[#0d1117] text-[#8b949e]'}`}>
-                  {{ once: '单次', daily: '每天', interval: '按间隔' }[f]}
-                </button>
               ))}
             </div>
-            {(form.frequency === 'daily' || form.frequency === 'once') && (
-              <input type="time" value={form.dailyTime}
-                onChange={e => setForm(f => ({ ...f, dailyTime: e.target.value }))}
-                className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-[#e6edf3] outline-none" />
-            )}
-            {form.frequency === 'interval' && (
-              <input type="number" value={form.intervalMinutes} min={1} max={1440}
-                onChange={e => setForm(f => ({ ...f, intervalMinutes: Number(e.target.value) }))}
-                className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-[#e6edf3] outline-none w-20"
-                placeholder="分钟" />
-            )}
           </div>
+        )}
 
-          {/* 日期 */}
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-[#8b949e]">开始日期</span>
-              <input type="date" value={form.activeFrom}
-                onChange={e => setForm(f => ({ ...f, activeFrom: e.target.value }))}
-                className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-[#e6edf3] outline-none" />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-[#8b949e]">结束日期</span>
-              <input type="date" value={form.activeTo}
-                onChange={e => setForm(f => ({ ...f, activeTo: e.target.value }))}
-                className="bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-[#e6edf3] outline-none" />
-            </label>
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <button onClick={() => { setView('templates'); setEditingId(null); setForm({...emptyForm}) }}
-              className="flex-1 py-1.5 text-xs text-[#8b949e] bg-[#21262d] hover:bg-[#30363d] rounded">取消</button>
-            <button onClick={handleAdd} disabled={!form.name.trim() || !form.prompt.trim()}
-              className="flex-1 py-1.5 text-xs text-white bg-[#1c2a3e] hover:bg-[#243656] rounded disabled:opacity-40">{editingId ? '保存' : '添加'}</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── My tasks ── */}
-      {view === 'list' && (
-        <div className="py-1">
-          {tasks.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-[#484f58]">
-              暂无自动化任务<br />
-              <span className="text-[10px]">从模板创建或手动添加</span>
-            </div>
-          ) : (
-            tasks.map(task => (
-              <div key={task.id} className="px-3 py-2.5 border-b border-[#21262d] hover:bg-[#1c2128] transition-colors">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${task.enabled ? 'bg-[#3fb950]' : 'bg-[#484f58]'}`} />
-                      <span className="text-xs text-[#e6edf3] font-medium truncate">{task.name}</span>
-                    </div>
-                    <div className="text-[10px] text-[#8b949e] mt-1 truncate">{task.prompt.slice(0, 60)}...</div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-[10px] text-[#58a6ff] bg-[#1c2a3e]/50 px-1.5 py-0.5 rounded">
-                        {freqLabel(task)}
-                      </span>
-                      {task.skill && <span className="text-[10px] text-[#a371f7] bg-[#2a1c3e]/50 px-1.5 py-0.5 rounded">{task.skill}</span>}
-                      {task.lastRunAt && (
-                        <span className="text-[10px] text-[#484f58]">
-                          上次: {new Date(task.lastRunAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+        {activeTab === 'tasks' && (
+          <>
+            {tasks.length === 0 ? (
+              <div className="text-center py-12 text-[#9a9ab0] text-xs">暂无任务，从推荐模板中添加或创建新任务</div>
+            ) : (
+              <div className="space-y-2">
+                {tasks.map(t => (
+                  <div key={t.id} className={`bg-white border rounded-xl p-3 ${t.enabled ? 'border-[#e5e6eb]' : 'border-[#e5e6eb] opacity-50'}`}>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.enabled ? 'bg-[#00b894]' : 'bg-[#9a9ab0]'}`} />
+                            <span className="text-sm font-medium text-[#1a1a2e] truncate">{t.name}</span>
+                          </div>
+                          <div className="text-[10px] text-[#9a9ab0] mt-1 truncate">{t.prompt}</div>
+                          <div className="text-[9px] text-[#c0c0d0] mt-1">{freqLabel(t)}</div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0 ml-2 flex-wrap justify-end">
+                          <button onClick={() => onExecute(t.prompt)} className="px-2 py-1 bg-[#6c5ce7]/5 text-[#6c5ce7] rounded text-[9px] hover:bg-[#6c5ce7]/10">执行</button>
+                          <button onClick={() => { setEditingId(t.id); const weeklyDay = (t as any).weekDay ?? 1; setForm({ name: t.name, prompt: t.prompt, frequency: t.frequency, dailyTime: t.dailyTime || '09:00', intervalMinutes: (t as any).intervalMinutes || 60, weekDay: weeklyDay }) }} className="px-2 py-1 bg-[#f0f0f5] text-[#4a4a6a] rounded text-[9px] hover:bg-[#e5e5f0]">编辑</button>
+                          <button onClick={async () => { await window.electron.invoke('scheduler:toggle', t.id, !t.enabled); refresh() }} className={`px-2 py-1 rounded text-[9px] ${t.enabled ? 'bg-[#f0f0f5] text-[#4a4a6a]' : 'bg-[#00b894]/5 text-[#00b894]'}`}>{t.enabled ? '停用' : '启用'}</button>
+                          <button onClick={async () => { await window.electron.invoke('scheduler:delete', t.id); refresh() }} className="px-2 py-1 bg-[#e17055]/5 text-[#e17055] rounded text-[9px]">删除</button>
+                        </div>
+                      </div>
+                      {/* Inline edit form */}
+                      {editingId === t.id && (
+                        <div className="p-2 bg-[#f5f6f8] rounded-lg border border-[#e5e6eb] space-y-1.5">
+                          <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none focus:border-[#6c5ce7]" placeholder="名称" />
+                          <textarea value={form.prompt} onChange={e => setForm({ ...form, prompt: e.target.value })} rows={2} className="w-full bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none focus:border-[#6c5ce7] resize-none" placeholder="指令" />
+                          <div className="flex gap-2 flex-wrap items-center">
+                            <select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none">
+                              <option value="daily">每天</option><option value="weekly">每周</option><option value="interval">间隔</option><option value="once">一次性</option>
+                            </select>
+                            {(form.frequency === 'daily' || form.frequency === 'weekly' || (form.frequency === 'once' && form.dailyTime)) && (
+                              <input type="time" value={form.dailyTime} onChange={e => setForm({ ...form, dailyTime: e.target.value })} className="bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none" />
+                            )}
+                            {form.frequency === 'weekly' && (
+                              <select value={form.weekDay} onChange={e => setForm({ ...form, weekDay: +e.target.value })} className="bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none">
+                                {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                              </select>
+                            )}
+                            {form.frequency === 'interval' && (
+                              <div className="flex items-center gap-1">
+                                <input type="number" value={form.intervalMinutes} onChange={e => setForm({ ...form, intervalMinutes: +e.target.value })} className="w-16 bg-white border border-[#e5e6eb] rounded px-2 py-1 text-[10px] outline-none" />
+                                <span className="text-[9px] text-[#9a9ab0]">分钟</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={async () => {
+                              const updates: any = { name: form.name, prompt: form.prompt, frequency: form.frequency, dailyTime: form.dailyTime }
+                              if (form.frequency === 'interval') updates.intervalMinutes = form.intervalMinutes
+                              if (form.frequency === 'weekly') updates.weekDay = form.weekDay
+                              await window.electron.invoke('scheduler:update', t.id, updates); setEditingId(null); refresh()
+                            }} className="px-2 py-1 bg-[#6c5ce7] text-white rounded text-[9px]">保存</button>
+                            <button onClick={() => setEditingId(null)} className="px-2 py-1 bg-[#f0f0f5] text-[#4a4a6a] rounded text-[9px]">取消</button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    <button onClick={() => handleRunNow(task)}
-                      className="text-[10px] px-2 py-0.5 bg-[#1c2a3e] text-[#58a6ff] rounded hover:bg-[#243656]">▶ 执行</button>
-                    <button onClick={() => handleEdit(task)}
-                      className="text-[10px] px-2 py-0.5 bg-[#21262d] text-[#e6edf3] rounded hover:bg-[#30363d]">✎ 编辑</button>
-                    <button onClick={() => handleToggle(task.id, !task.enabled)}
-                      className={`text-[10px] px-2 py-0.5 rounded ${task.enabled ? 'bg-[#21262d] text-[#8b949e]' : 'bg-[#1c2e1c] text-[#3fb950]'}`}>
-                      {task.enabled ? '停用' : '启用'}
-                    </button>
-                    <button onClick={() => handleDelete(task.id)}
-                      className="text-[10px] px-2 py-0.5 bg-[#3e1c1c] text-[#f85149] rounded hover:bg-[#562424]">删除</button>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))
-          )}
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

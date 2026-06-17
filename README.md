@@ -8,10 +8,10 @@
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/⚡-模型切换-blue" />
   <img src="https://img.shields.io/badge/📊-流量监控-green" />
   <img src="https://img.shields.io/badge/🤖-自动化调度-orange" />
   <img src="https://img.shields.io/badge/🌐-多标签会话-purple" />
+  <img src="https://img.shields.io/badge/⚠️-模型切换已移除-red" />
 </p>
 
 ---
@@ -21,37 +21,15 @@
 | 功能 | 说明 |
 |---|---|
 | **Claude Code 完整终端** | PTY 虚拟终端，100% 保留 CLI 所有功能（MCP 工具、插件、Hooks） |
-| **模型一键切换** | 可视化切换 8 个提供商、13+ 模型预设，自动更新 settings.json |
-| **API Key 面板配置** | 未配置 Key 的厂商可直接在面板中粘贴 Key，无需手动编辑文件 |
 | **实时流量监控** | 解析 `~/.claude/projects/*/session.jsonl`，展示 Token 消耗、缓存命中率、预估费用 |
 | **自动化调度引擎** | 预设 12 个模板 + 自定义表单，支持单次/每天/按间隔执行，精确到分钟 |
 | **多标签终端** | 不同目录并行运行多个 Claude Code 会话 |
 | **状态栏** | 实时显示当前模型、费用、会话数、工作目录 |
+| **模型只读展示** | 顶部栏和状态栏显示当前模型名称（切换请使用 `claude` CLI 的 `/model` 命令或直接编辑 settings.json） |
 
 ---
 
 ## 🎬 界面
-
-```
-┌──────────────────────────────────────────────────┐
-│  [⚡模型] [📊流量] [🤖自动化]      │  Terminal    │
-│                                    │              │
-│  ┌ 当前模型 ────────────────────┐  │  ┌────────┐  │
-│  │ DeepSeek V4 Pro [1M]        │  │  │ Claude  │  │
-│  │ DeepSeek                    │  │  │ Code    │  │
-│  └─────────────────────────────┘  │  │ CLI     │  │
-│                                    │  │         │  │
-│  ┌ 提供商 ────────────────────┐    │  │         │  │
-│  │ ▸ DeepSeek      已配置     │    │  │         │  │
-│  │   ├ V4 Pro [1M]           │    │  │         │  │
-│  │   ├ V4 Flash              │    │  └────────┘  │
-│  │ ▸ Anthropic    未配置 Key │    │              │
-│  │ ▸ OpenRouter   未配置 Key │    │              │
-│  └───────────────────────────┘    │              │
-├────────────────────────────────────┤──────────────┤
-│  🟢 DeepSeek V4 Pro │ ¥0.0234 │ 2 会话 │ ~/Desktop │
-└──────────────────────────────────────────────────┘
-```
 
 ---
 
@@ -94,6 +72,47 @@ npm run package
 
 ---
 
+---
+
+## ⚠️ 重要提醒：模型切换功能已移除
+
+**请不要使用本应用进行模型切换操作。** 早期版本包含内置的模型切换 UI（可视化切换不同 AI 提供商的模型），但在实际使用中发现了以下问题：
+
+### 已修复的关键 Bug
+
+| Bug | 原因 | 解决方案 |
+|---|---|---|
+| **切换到其他厂商后无法切回原厂商** | `switchModel()` 的 key 解析回退链会读取正在修改中的 `env` 副本，导致跨厂商的 `ANTHROPIC_AUTH_TOKEN` 污染 — DeepSeek 的 key 被写到 `ANTHROPIC_AUTH_TOKEN`，切回 Claude 时读到的仍是 DeepSeek 的 key | 改为 `keys.json[providerId]` 按厂商 ID 精准匹配，移除了跨厂商回退链 |
+| **Sidebar 配置 Key 后模型列表不更新** | `handleSetApiKey()` 只调用了 `config:set` 写入 `settings.json`，没写入 `keys.json`，导致 `switchModel` 按 `keys.json[providerId]` 查找不到 key | 配置 Key 时同时写入 `keys.json` 和 `settings.json` |
+| **自动化执行卡死** | `handleAutomationExecute()` 和 `handleUsePrompt()` 在 auto-send 路径下直接调用 `chat:send-message`，与正在进行的 stream 产生竞态条件，`session.abortController?.abort()` 可能杀死当前活跃请求 | 取消所有 auto-send 逻辑，改为仅填充输入框，用户按 Enter 发送 |
+| **切页面后 prompt 重复填充** | auto-send 路径不经过 ChatInput 的 `onConsumed()`，`filledPrompt` 未被清空，用户切页再回来时重新填充 | auto-send 路径不再设置 `filledPrompt`，仅「填入输入框」时才设置 |
+| **技能开关小白圈越界** | 使用 `left-0.5` / `right-0.5` 定位，圈圈颜色始终是白色 | 改用 `translate-x` 精确控制位移（40px 胶囊内保持 2px 边距），圈圈跟随状态变色（关=灰色，开=紫色） |
+| **Chat Service key 解析不一致** | `getApiConfig()` 先查 `keys.json[providerId]`，找不到时回退到 `env.ANTHROPIC_AUTH_TOKEN`，可能拿到其他厂商的 key | 同样改为 `keys.json[providerId]` 为唯一权威来源，移除回退链 |
+
+### 建议做法
+
+**如需切换模型，请直接编辑 `~/.claude/settings.json`：**
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key-here"
+  }
+}
+```
+
+或者使用 Claude Code CLI 自带的 `/model` 命令在终端内切换：
+
+```
+/model deepseek-v4-flash
+```
+
+> ⚡ 本应用仅保留模型名称的**只读展示**（顶部栏和状态栏），所有切换入口已被移除。
+
+---
+
 ## 🛠️ 技术栈
 
 | 层 | 技术 |
@@ -117,7 +136,7 @@ src/
 │   ├── ipc.ts                     # IPC 通信注册
 │   └── services/
 │       ├── terminal.service.ts    # PTY 终端管理
-│       ├── model.service.ts       # 模型切换（读写 settings.json）
+│       ├── model.service.ts       # 模型信息读取（只读）
 │       ├── proxy.service.ts       # 流量监控（解析 JSONL）
 │       ├── config.service.ts      # 配置管理
 │       └── scheduler.service.ts   # 自动化调度引擎
@@ -127,7 +146,7 @@ src/
 │   ├── App.tsx                    # 根组件
 │   ├── components/
 │   │   ├── Terminal/              # xterm.js 终端 + 多标签
-│   │   ├── Sidebar/               # 模型切换、流量监控、自动化面板
+│   │   ├── Sidebar/               # 流量监控、自动化面板
 │   │   └── StatusBar/             # 底部状态栏
 │   └── stores/                    # Zustand 状态管理
 └── shared/                        # 共享类型定义
@@ -140,20 +159,28 @@ src/
 
 ### 模型配置
 
-模型列表读取自 `~/.claude/providers.json`，切换模型时自动修改 `~/.claude/settings.json` 中的环境变量。
+模型信息（名称、服务商）从 `~/.claude/settings.json` 中的 `env.ANTHROPIC_MODEL` 和 `env.ANTHROPIC_BASE_URL` 读取。
 
-支持的提供商：
+本应用**不支持 UI 切换模型**。如需切换，请使用以下方式之一：
 
-| 提供商 | 需要配置的环境变量 |
-|---|---|
-| DeepSeek | `ANTHROPIC_AUTH_TOKEN` |
-| Anthropic | `ANTHROPIC_AUTH_TOKEN` |
-| OpenRouter | `ANTHROPIC_AUTH_TOKEN` |
-| DashScope (阿里) | `DASHSCOPE_API_KEY` |
-| Zhipu (智谱) | `ZHIPU_API_KEY` |
-| Moonshot (月之暗面) | `MOONSHOT_API_KEY` |
-| Xiaomi (小米) | `MIMO_API_KEY` |
-| 自定义 | `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL` |
+**方式一：使用 Claude Code CLI 自带的 `/model` 命令**
+在终端中输入：
+```
+/model deepseek-v4-flash
+```
+
+**方式二：直接编辑 `~/.claude/settings.json`**
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key"
+  }
+}
+```
+
+> ⚠️ 不正确的模型切换可能导致 API Key 混乱。推荐仅使用 `claude` CLI 的 `/model` 命令进行切换。
 
 ## 🤖 自动化调度
 

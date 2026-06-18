@@ -3,17 +3,24 @@ import Anthropic from '@anthropic-ai/sdk'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { join, extname, basename } from 'path'
 import { homedir } from 'os'
-import { execSync } from 'child_process'
-import pdfParse from 'pdf-parse'
-import mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
-import AdmZip from 'adm-zip'
+import { spawn, ChildProcess } from 'child_process'
+import { createRequire } from 'module'
 import type { ClaudeSettings } from '../../shared/types'
+
+// Use createRequire for CJS modules — handle electron-vite bundling interop
+const _require = createRequire(import.meta.url)
+const _pdfParseRaw: any = _require('pdf-parse')
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _pdfParseRaw?.default || _pdfParseRaw
+const _mammothRaw: any = _require('mammoth')
+const mammoth: { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string }> } = _mammothRaw?.default || _mammothRaw
+const XLSX: any = (_require('xlsx') as any)?.default || _require('xlsx')
+const AdmZip: any = (_require('adm-zip') as any)?.default || _require('adm-zip')
 
 interface ChatSession {
   id: string
   messages: Anthropic.MessageParam[]
   abortController: AbortController | null
+  systemPromptOverride?: string // Per-session system prompt (for WeChat personas)
 }
 
 export class ChatService extends EventEmitter {
@@ -25,82 +32,87 @@ export class ChatService extends EventEmitter {
     return ChatService.instance
   }
 
-  private getApiConfig(): { apiKey: string; baseURL: string; model: string; providerName: string; providerId: string; modelDisplay: string } {
-    const settingsPath = join(homedir(), '.claude', 'settings.json')
-    const keysPath = join(homedir(), '.claude', 'keys.json')
+  private getApiConfig(): { apiKey: string; baseURL: string; model: string; providerName: string; providerId: string; modelDisplay: string; apiFormat: string } {
     let apiKey = ''
     let baseURL = 'https://api.deepseek.com/anthropic'
-    let model = 'deepseek-v4-pro[1m]'
+    let model = 'deepseek-v4-pro'
     let providerName = 'DeepSeek'
     let providerId = 'deepseek'
-    let modelDisplay = 'DeepSeek V4 Pro [1M]'
+    let modelDisplay = 'DeepSeek V4 Pro'
+    let apiFormat = 'anthropic'
 
-    if (existsSync(settingsPath)) {
+    // 1. app-settings.json (written by model switcher — NEVER overridden)
+    const appPath = join(homedir(), '.claude', 'app-settings.json')
+    if (existsSync(appPath)) {
       try {
-        const settings: ClaudeSettings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-        const env = settings.env || {}
-        baseURL = env.ANTHROPIC_BASE_URL || baseURL
-        model = env.ANTHROPIC_MODEL || model
+        const app = JSON.parse(readFileSync(appPath, 'utf-8'))
+        baseURL = app.baseURL || baseURL
+        model = (app.model || model).replace(/\[1m\]/i, '')
+        apiKey = app.authToken || ''
+        console.log('[Chat] app-settings:', model, baseURL, 'key=', !!apiKey)
+      } catch (e) { console.error('[Chat] app-settings error:', (e as Error).message) }
+    }
 
-        // Look up provider info from providers.json (match by model_id first, then base URL)
-        const providersPath = join(homedir(), '.claude', 'providers.json')
-        if (existsSync(providersPath)) {
-          const providersData = JSON.parse(readFileSync(providersPath, 'utf-8'))
-          const providersObj = providersData.providers || {}
-          // Primary match: by model_id (more reliable than base URL which can change)
-          let matched = false
-          for (const [pid, p]: [string, any] of Object.entries(providersObj)) {
-            const models = p.models || {}
-            for (const [_mid, m]: [string, any] of Object.entries(models)) {
-              if (m.model_id === model) {
-                providerId = pid
-                providerName = p.name
-                modelDisplay = m.display || model
-                matched = true
-                break
-              }
-            }
-            if (matched) break
-          }
-          // Fallback: match by base URL if model_id didn't match (e.g. custom models)
-          if (!matched) {
-            for (const [pid, p]: [string, any] of Object.entries(providersObj)) {
-              if (p.api_base === baseURL) {
-                providerId = pid
-                providerName = p.name
-                const models = p.models || {}
-                for (const [_mid, m]: [string, any] of Object.entries(models)) {
-                  if (m.model_id === model) { modelDisplay = m.display || model; break }
-                }
-                break
-              }
+    // 2. Fallbacks for apiKey
+    if (!apiKey) apiKey = process.env.DASHSCOPE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || ''
+    if (!apiKey) {
+      const sPath = join(homedir(), '.claude', 'settings.json')
+      if (existsSync(sPath)) {
+        try {
+          const s = JSON.parse(readFileSync(sPath, 'utf-8'))
+          apiKey = s?.env?.ANTHROPIC_AUTH_TOKEN || s?.env?.DASHSCOPE_API_KEY || ''
+        } catch {}
+      }
+    }
+    if (!apiKey) {
+      const fb = join(homedir(), '.claude', '.api-key')
+      if (existsSync(fb)) { try { apiKey = readFileSync(fb, 'utf-8').trim() } catch {} }
+    }
+
+    // 3. Provider matching from providers.json
+    const pp = join(homedir(), '.claude', 'providers.json')
+    if (existsSync(pp)) {
+      try {
+        const pd = JSON.parse(readFileSync(pp, 'utf-8'))
+        const po = pd.providers || {}
+        for (const [pid, p]: [string, any] of Object.entries(po)) {
+          const models = p.models || {}
+          for (const [, m]: [string, any] of Object.entries(models)) {
+            if ((m.model_id || '').replace(/\[1m\]/i, '') === model) {
+              providerId = pid; providerName = p.name; modelDisplay = m.display || model
+              apiFormat = (p as any).api_format || 'anthropic'
             }
           }
         }
-
-        // ── Key lookup (multi-source, same as ModelService) ──
-        // Priority: keys.json[providerId] → env[authEnv] → env[apiKeyEnv] → process.env
-        const matchedProvider = matched ? (providersObj as any)[providerId] : null
-        const authEnv = matchedProvider?.auth_env || 'ANTHROPIC_AUTH_TOKEN'
-        const apiKeyEnv = matchedProvider?.api_key_env || authEnv
-
-        if (existsSync(keysPath)) {
-          try {
-            const keys = JSON.parse(readFileSync(keysPath, 'utf-8'))
-            if (keys[providerId]) { apiKey = keys[providerId] }
-          } catch {}
-        }
-        // Fallback: per-provider env slot (e.g. DEEPSEEK_API_KEY — not overwritten on switch)
-        if (!apiKey && env[apiKeyEnv]) { apiKey = (env as any)[apiKeyEnv] }
-        // Last resort: shared runtime slot (may be overwritten by other provider's key)
-        if (!apiKey && env[authEnv]) { apiKey = (env as any)[authEnv] }
       } catch {}
     }
-    return { apiKey, baseURL, model, providerName, providerId, modelDisplay }
+
+    console.log('[Chat] Config:', model, providerName, 'format=', apiFormat, 'keyLen=', apiKey.length)
+    return { apiKey, baseURL, model, providerName, providerId, modelDisplay, apiFormat }
   }
 
-  createSession(id: string): void {
+  createSession(id: string, systemPrompt?: string): void {
     if (!this.sessions.has(id)) {
+      this.sessions.set(id, { id, messages: [], abortController: null, systemPromptOverride: systemPrompt })
+    } else if (systemPrompt) {
+      // Update system prompt on existing session AND clear history
+      // so the new persona starts fresh without old conversation context
+      const sess = this.sessions.get(id)!
+      sess.systemPromptOverride = systemPrompt
+      sess.messages = []
+      sess.abortController?.abort()
+      sess.abortController = null
+    }
+  }
+
+  resetSession(id: string): void {
+    this.cancel(id)
+    const sess = this.sessions.get(id)
+    if (sess) {
+      sess.messages = []
+      sess.systemPromptOverride = undefined
+      sess.abortController = null
+    } else {
       this.sessions.set(id, { id, messages: [], abortController: null })
     }
   }
@@ -138,7 +150,10 @@ export class ChatService extends EventEmitter {
         messages: [{ role: 'user', content: userMessage }],
       })
 
-      const onAbort = () => stream.abort()
+      const onAbort = () => {
+        try { (stream as any).abort?.() } catch {}
+        try { (stream as any).controller?.abort() } catch {}
+      }
       ac.signal.addEventListener('abort', onAbort, { once: true })
 
       stream.on('text', (text: string) => {
@@ -157,6 +172,68 @@ export class ChatService extends EventEmitter {
       } else {
         this.emit('error', sessionId, err instanceof Error ? err.message : String(err))
       }
+    }
+  }
+
+  // ── Multimodal Vision Routing (llama.cpp / Qwen3.5-9B VLM) ──
+
+  /** Send images to local llama.cpp Qwen3.5-9B VLM for analysis, return text description */
+  private async analyzeImagesWithLlamaCpp(images: string[], context?: string, signal?: AbortSignal): Promise<string | null> {
+    const llamaUrl = 'http://localhost:8080/v1/chat/completions'
+    const model = 'qwen3.5-9b'
+
+    try {
+      // Check if already cancelled before starting
+      if (signal?.aborted) return null
+
+      // Build multimodal message content for llama.cpp (OpenAI-compatible format)
+      const userContent: any[] = [
+        {
+          type: 'text',
+          text: context
+            ? `请详细描述以下图片的内容。用户的问题是: "${context.slice(0, 500)}"。请用中文回答，描述图片中的关键元素、文字、颜色和布局。`
+            : '请详细描述这张图片的内容，包括主要元素、文字、颜色、布局等信息。用中文回答。',
+        },
+      ]
+
+      for (const img of images) {
+        userContent.push({ type: 'image_url', image_url: { url: img } })
+      }
+
+      const resp = await fetch(llamaUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: userContent }],
+          stream: false,
+          temperature: 0.3,
+          max_tokens: 1024,
+        }),
+        signal, // Abort fetch if cancelled
+      })
+
+      // Check abort after response
+      if (signal?.aborted) return null
+
+      if (!resp.ok) {
+        console.warn(`[Chat] llama.cpp API returned ${resp.status}`)
+        return null
+      }
+
+      const data: any = await resp.json()
+      const text = data?.choices?.[0]?.message?.content || ''
+      if (!text.trim()) return null
+
+      return `[Qwen3.5-9B VLM 视觉分析结果]\n${text.trim()}`
+    } catch (e: any) {
+      if (e.name === 'AbortError' || signal?.aborted) {
+        console.log('[Chat] Image analysis cancelled by user')
+        return null
+      }
+      // llama.cpp not running or unreachable — this is expected if not started
+      console.warn(`[Chat] llama.cpp unavailable: ${e.message}`)
+      return null
     }
   }
 
@@ -207,7 +284,7 @@ export class ChatService extends EventEmitter {
     },
   ]
 
-  private executeTool(name: string, input: Record<string, unknown>): string {
+  private async executeTool(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
     try {
       switch (name) {
         case 'read_file': {
@@ -288,6 +365,11 @@ export class ChatService extends EventEmitter {
             }
           }
 
+          // ── PPT (legacy binary format): unsupported ──
+          if (ext === '.ppt') {
+            return '不支持旧版 .ppt 格式，请用 PowerPoint 另存为 .pptx 格式后重新上传'
+          }
+
           // ── PPTX: extract text from slides (ZIP+XML) ──
           if (ext === '.pptx') {
             try {
@@ -339,18 +421,57 @@ export class ChatService extends EventEmitter {
           const cmd = input.command as string
           const cwd = (input.cwd as string) || process.cwd()
           const isWin = process.platform === 'win32'
-          // Use cmd.exe on Windows (handles common shell syntax like ||, &&, etc.)
-          // PowerShell wrapping breaks bash/cmd syntax (||, && are not valid in PS)
-          const shellCmd = isWin ? cmd : cmd
-          const shell = isWin ? 'cmd.exe' : '/bin/bash'
+          // Use async spawn (NOT execSync) to avoid blocking the main event loop.
+          // On Windows, force chcp 65001 (UTF-8) before running the command so
+          // Chinese output doesn't get garbled by the default GBK/CP936 code page.
+          // LANG/LC_ALL env vars also help many CLI tools output UTF-8.
           let output = ''
+          let child: ChildProcess | null = null
           try {
-            output = execSync(shellCmd, { encoding: 'utf-8', cwd, timeout: 30000, maxBuffer: 10 * 1024 * 1024, shell: shell, windowsHide: true }).trim()
+            output = await new Promise<string>((resolve, reject) => {
+              const utf8Env = { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONIOENCODING: 'utf-8' }
+              if (isWin) {
+                child = spawn('cmd.exe', ['/c', `chcp 65001 >nul && ${cmd}`], {
+                  cwd, env: utf8Env, windowsHide: true,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                })
+              } else {
+                child = spawn(cmd, [], {
+                  cwd, env: utf8Env, shell: '/bin/bash', windowsHide: true,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                })
+              }
+              const chunks: Buffer[] = []
+              const errChunks: Buffer[] = []
+              child.stdout!.on('data', (d: Buffer) => chunks.push(d))
+              child.stderr!.on('data', (d: Buffer) => errChunks.push(d))
+              child.on('error', reject)
+              child.on('close', (code) => {
+                const stdout = Buffer.concat(chunks).toString('utf-8').trim()
+                const stderr = Buffer.concat(errChunks).toString('utf-8').trim()
+                if (code === 0 || stdout) resolve(stdout || stderr)
+                else reject(new Error(stderr || `Command exited with code ${code}`))
+              })
+              // Support abort for instant cancellation
+              if (signal) {
+                const onAbort = () => {
+                  if (!child || child.killed) return
+                  if (isWin) {
+                    child.kill() // TerminateProcess
+                  } else {
+                    child.kill('SIGTERM')
+                    setTimeout(() => { if (child && !child.killed) child.kill('SIGKILL') }, 3000)
+                  }
+                }
+                signal.addEventListener('abort', onAbort, { once: true })
+                if (!signal.aborted) child.on('close', () => signal.removeEventListener('abort', onAbort))
+              }
+            })
           } catch (e: any) {
-            output = e.stdout?.trim() || e.stderr?.trim() || ''
+            output = (e.stdout || e.stderr || e.message || '').trim()
             if (!output) throw e
           }
-          // Strip ANSI escape codes from output
+          // Strip ANSI escape codes from output, keep valid UTF-8
           return output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') || '(ok)'
         }
         default:
@@ -400,14 +521,113 @@ export class ChatService extends EventEmitter {
 
   // ── Send message ──
 
+  // ── OpenAI-compatible API path (for Qwen/DashScope) ──
+  private async sendMessageOpenAI(
+    sessionId: string, userText: string,
+    config: { apiKey: string; baseURL: string; model: string; modelDisplay: string; providerName: string },
+    session: ChatSession, images?: string[]
+  ): Promise<void> {
+    const ac = new AbortController()
+    session.abortController?.abort()
+    session.abortController = ac
+
+    // Build messages
+    const msgs: any[] = [
+      { role: 'system', content: `You are ${config.modelDisplay}, by ${config.providerName}. Respond in user's language.` }
+    ]
+    // Convert existing session messages to OpenAI format
+    for (const m of session.messages) {
+      if (typeof m.content === 'string') {
+        msgs.push({ role: m.role, content: m.content })
+      } else if (Array.isArray(m.content)) {
+        const textBlocks = m.content.filter((b: any) => b.type === 'text').map((b: any) => b.text)
+        const imgBlocks = m.content.filter((b: any) => b.type === 'image')
+        let content = textBlocks.join('\n')
+        if (imgBlocks.length > 0) {
+          content = '[包含图片]\n' + content
+        }
+        msgs.push({ role: m.role, content })
+      }
+    }
+    // Add current user message with images
+    const userContent: any[] = []
+    if (images?.length) {
+      for (const img of images) {
+        const base64 = img.startsWith('data:') ? img.split(',')[1] : img
+        const mime = img.startsWith('data:image/png') ? 'image/png' : img.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png'
+        userContent.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } })
+      }
+    }
+    userContent.push({ type: 'text', text: userText })
+    msgs.push({ role: 'user', content: userContent })
+    session.messages.push({ role: 'user', content: userText })
+
+    try {
+      const resp = await fetch(config.baseURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+        body: JSON.stringify({ model: config.model, messages: msgs, stream: true }),
+        signal: ac.signal,
+      })
+
+      if (!resp.ok) {
+        const errText = await resp.text()
+        this.emit('error', sessionId, `API ${resp.status}: ${errText}`)
+        return
+      }
+
+      const reader = resp.body?.getReader()
+      if (!reader) { this.emit('error', sessionId, 'No response body'); return }
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let buffer = ''
+
+      while (!ac.signal.aborted) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
+          try {
+            const json = JSON.parse(line.slice(6))
+            const delta = json.choices?.[0]?.delta?.content
+            if (delta) {
+              fullText += delta
+              this.emit('delta', sessionId, delta)
+            }
+          } catch {}
+        }
+      }
+
+      session.messages.push({ role: 'assistant', content: fullText })
+      this.emit('done', sessionId)
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        this.emit('cancelled', sessionId)
+      } else {
+        this.emit('error', sessionId, e.message)
+      }
+    } finally {
+      if (session.abortController === ac) session.abortController = null
+    }
+  }
+
   async sendMessage(sessionId: string, userText: string, images?: string[]): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
     const config = this.getApiConfig()
     if (!config.apiKey) {
-      this.emit('error', sessionId, '未配置 API Key (ANTHROPIC_AUTH_TOKEN)')
+      this.emit('error', sessionId, '未配置 API Key')
       return
+    }
+
+    // Route to OpenAI format for qwen/dashscope providers
+    if (config.apiFormat === 'openai') {
+      return this.sendMessageOpenAI(sessionId, userText, config, session, images)
     }
 
     const client = new Anthropic({ apiKey: config.apiKey, baseURL: config.baseURL })
@@ -417,28 +637,65 @@ export class ChatService extends EventEmitter {
     const ac = new AbortController()
     session.abortController = ac
 
-    // Build user message content (support text + images)
+    // Build user message content — handle images based on provider capability
     const userContent: Anthropic.ContentBlockParam[] = []
+    const providerSupportsVision = config.providerId === 'qwen' // Qwen via DashScope supports vision
+
+    // Multimodal routing: if images present and provider doesn't support vision,
+    // try local Qwen3.5-9B VLM (llama.cpp) for image analysis first
     if (images && images.length > 0) {
-      for (const img of images) {
-        // img is base64 data URL or raw base64
-        const base64 = img.startsWith('data:') ? img.split(',')[1] : img
-        const mediaType = img.startsWith('data:image/png') ? 'image/png'
-          : img.startsWith('data:image/jpeg') ? 'image/jpeg'
-          : img.startsWith('data:image/gif') ? 'image/gif'
-          : img.startsWith('data:image/webp') ? 'image/webp'
-          : 'image/png'
-        userContent.push({
-          type: 'image',
-          source: { type: 'base64', media_type: mediaType as any, data: base64 },
-        } as any)
+      if (providerSupportsVision) {
+        // Direct vision — send images inline
+        for (const img of images) {
+          const base64 = img.startsWith('data:') ? img.split(',')[1] : img
+          const mediaType = img.startsWith('data:image/png') ? 'image/png'
+            : img.startsWith('data:image/jpeg') ? 'image/jpeg'
+            : img.startsWith('data:image/gif') ? 'image/gif'
+            : img.startsWith('data:image/webp') ? 'image/webp'
+            : 'image/png'
+          userContent.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType as any, data: base64 },
+          } as any)
+        }
+      } else {
+        // Route images through local Qwen3.5-9B VLM (llama.cpp) for vision analysis
+        // Check if user cancelled before starting expensive image analysis
+        if (ac.signal.aborted) {
+          console.log('[Chat] Aborted before image analysis')
+          return
+        }
+        console.log(`[Chat] Provider ${config.providerName} lacks vision support, trying local Qwen3.5-9B VLM (llama.cpp)...`)
+        try {
+          const descriptions = await this.analyzeImagesWithLlamaCpp(images, userText, ac.signal)
+          // Check if user cancelled during image analysis
+          if (ac.signal.aborted) {
+            console.log('[Chat] Aborted during image analysis')
+            return
+          }
+          if (descriptions) {
+            userText = `${descriptions}\n\n[用户原文]\n${userText}`
+            console.log('[Chat] Image analysis via local Qwen3.5-9B VLM successful')
+          } else {
+            userText = `[用户上传了 ${images.length} 张图片，本地视觉模型未返回分析结果。]\n\n${userText}`
+          }
+        } catch (e: any) {
+          if (ac.signal.aborted) {
+            console.log('[Chat] Image analysis cancelled')
+            return
+          }
+          console.warn('[Chat] Local Qwen3.5-9B VLM (llama.cpp) unavailable:', e.message)
+          userText = `[用户上传了 ${images.length} 张图片。如需图片识别，请：\n1. 启动 llama.cpp: F:\\llama.cpp\\start-server.bat\n2. 确保 Qwen3.5-9B VLM 模型已下载到 F:\\llama.cpp\\models\n3. 重启应用]\n\n${userText}`
+        }
       }
     }
     userContent.push({ type: 'text', text: userText })
     session.messages.push({ role: 'user', content: userContent })
 
-    const basePrompt = `You are ${config.modelDisplay}, a large language model by ${config.providerName}. You are running inside ZXCODE, an AI-powered developer assistant desktop application. Respond in the same language as the user. Use Markdown for formatting. When helping with code, use the available tools to read/write files and run commands. When asked about your identity, always answer that you are ${config.modelDisplay} by ${config.providerName} — never say you are Claude unless you are actually running on Anthropic's Claude model.`
-    const skillsPrompt = this.getSkillsPrompt()
+    // Use per-session system prompt override if set (e.g. WeChat persona)
+    const sessionSystemOverride = session.systemPromptOverride
+    const basePrompt = sessionSystemOverride || `You are ${config.modelDisplay}, a large language model by ${config.providerName}. You are running inside ZXCODE, an AI-powered developer assistant desktop application. Respond in the same language as the user. Use Markdown for formatting. When helping with code, use the available tools to read/write files and run commands. When asked about your identity, always answer that you are ${config.modelDisplay} by ${config.providerName} — never say you are Claude unless you are actually running on Anthropic's Claude model.`
+    const skillsPrompt = sessionSystemOverride ? '' : this.getSkillsPrompt()
     const systemPrompt = basePrompt + (skillsPrompt || '')
 
     const maxRounds = 5
@@ -456,7 +713,10 @@ export class ChatService extends EventEmitter {
           tools: this.tools,
         })
 
-        const onAbort = () => stream.abort()
+        const onAbort = () => {
+          try { (stream as any).abort?.() } catch {}
+          try { (stream as any).controller?.abort() } catch {}
+        }
         ac.signal.addEventListener('abort', onAbort, { once: true })
 
         let textContent = ''
@@ -493,7 +753,7 @@ export class ChatService extends EventEmitter {
         for (const tb of toolBlocks) {
           // Check abort BEFORE executing each tool
           if (ac.signal.aborted) break
-          const result = this.executeTool(tb.name, tb.input as Record<string, unknown>)
+          const result = await this.executeTool(tb.name, tb.input as Record<string, unknown>, ac.signal)
           this.emit('tool_result', sessionId, tb.id, tb.name, tb.input, result)
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result })
           // Check abort AFTER each tool (so user can stop during long multi-tool sequences)

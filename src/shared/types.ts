@@ -98,3 +98,7 @@ export interface SessionInfo {
   cwd: string
   createdAt: number
 }
+
+// ── WeChat Bot Types ──
+
+export type { BotStatus } from './wechat-types'

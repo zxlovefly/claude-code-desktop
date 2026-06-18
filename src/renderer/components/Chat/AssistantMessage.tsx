@@ -1,17 +1,47 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage } from './types'
+import { IconDeepSeek, IconAnthropic } from '../Icons'
+
+interface CurrentModelInfo {
+  provider: string
+  modelId: string
+  display: string
+  baseUrl: string
+  configured: boolean
+}
 
 interface AssistantMessageProps {
   message: ChatMessage
 }
 
+function ProviderAvatar({ provider }: { provider: string }) {
+  const lower = provider.toLowerCase()
+  if (lower.includes('deepseek')) return <IconDeepSeek />
+  if (lower.includes('anthropic') || lower.includes('claude')) return <IconAnthropic />
+  // Generic fallback
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#6c5ce7" />
+      <path d="M7 8l5 4-5 4" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+      <path d="M13 16h4" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function AssistantMessage({ message }: AssistantMessageProps) {
   const hasContent = message.content.length > 0
   const [showTools, setShowTools] = useState(false)
+  const [modelInfo, setModelInfo] = useState<CurrentModelInfo | null>(null)
+
+  useEffect(() => {
+    window.electron.invoke('model:current').then((d: unknown) => {
+      if (d) setModelInfo(d as CurrentModelInfo)
+    })
+  }, [])
 
   // ── Parse message content: separate tool calls from actual response ──
   const { cleanContent, toolCalls } = useMemo(() => {
@@ -137,12 +167,14 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
   return (
     <div className="mb-4 px-4">
       <div className="max-w-[85%]">
-        {/* Avatar */}
+        {/* Avatar — shows actual model provider + name */}
         <div className="flex items-center gap-2 mb-1.5">
-          <div className="w-5 h-5 rounded-full bg-[#6c5ce7]/10 flex items-center justify-center flex-shrink-0">
-            <span className="text-[10px]">🤖</span>
+          <div className="w-5 h-5 rounded-full bg-[#f0f0f5] flex items-center justify-center flex-shrink-0">
+            {modelInfo ? <ProviderAvatar provider={modelInfo.provider} /> : <IconDeepSeek />}
           </div>
-          <span className="text-[10px] text-[#9a9ab0] font-medium uppercase tracking-wide">Claude</span>
+          <span className="text-[10px] text-[#9a9ab0] font-medium">
+            {modelInfo?.display || 'AI 助手'}
+          </span>
           {message.streaming && (
             <span className="w-1.5 h-1.5 rounded-full bg-[#6c5ce7] animate-pulse-dot" />
           )}

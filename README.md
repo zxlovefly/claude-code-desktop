@@ -1,6 +1,6 @@
 # Claude Code Desktop
 
-> 将 Claude Code CLI 封装为桌面应用，保留全部功能，并增加 PRD 撰写、竞品分析、原型设计、流量监控、自动化工作流等产品工具。
+> 将 Claude Code CLI 封装为桌面应用，保留全部 CLI 功能，并集成 PRD 撰写、竞品分析、原型设计、实时流量监控仪表盘、自动化调度引擎、提示词库等产品工具。
 
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![electron](https://img.shields.io/badge/electron-35.x-9feaf9)
@@ -12,29 +12,115 @@
   <img src="https://img.shields.io/badge/📊-竞品分析-green" />
   <img src="https://img.shields.io/badge/🎨-原型设计-orange" />
   <img src="https://img.shields.io/badge/🤖-自动化调度-purple" />
-  <img src="https://img.shields.io/badge/📊-流量监控-teal" />
-  <img src="https://img.shields.io/badge/⚠️-模型切换已移除-red" />
+  <img src="https://img.shields.io/badge/📊-流量监控仪表盘-teal" />
+  <img src="https://img.shields.io/badge/💬-AI Chat 对话-pink" />
+  <img src="https://img.shields.io/badge/🤖-微信机器人-green" />
+  <img src="https://img.shields.io/badge/👁️-本地多模态视觉-red" />
+  <img src="https://img.shields.io/badge/⚡-实时状态栏-gray" />
 </p>
 
 ---
 
 ## ✨ 功能
 
+### 核心功能
+
 | 功能 | 说明 |
 |---|---|
-| **Claude Code 完整终端** | PTY 虚拟终端，100% 保留 CLI 所有功能（MCP 工具、插件、Hooks） |
-| **实时流量监控** | 解析 `~/.claude/projects/*/session.jsonl`，展示 Token 消耗、缓存命中率、预估费用 |
-| **自动化调度引擎** | 预设 12 个模板 + 自定义表单，支持单次/每天/按间隔执行，精确到分钟 |
-| **多标签终端** | 不同目录并行运行多个 Claude Code 会话 |
-| **状态栏** | 实时显示当前模型、费用、会话数、工作目录 |
+| **Claude Code 完整终端** | PTY 虚拟终端，100% 保留 CLI 全部能力（MCP 工具、插件、Hooks、/model 命令） |
+| **AI Chat 对话界面** | 结构化消息列表 + 流式输出 + 文件/图片上传 + 工作目录上下文注入 |
+| **多标签终端** | 不同目录并行运行多个 Claude Code 会话，支持自定义目录启动 |
+
+### 流量监控仪表盘
+
+| 功能 | 说明 |
+|---|---|
+| **实时数据采集** | 每 2 秒解析 `~/.claude/projects/*/session.jsonl`，无需额外配置 |
+| **Token 统计** | 总请求数、Input/Output/Cache 读/Cache 写 Token 分项统计 |
+| **缓存命中率** | 环形仪表盘 + 趋势折线图，实时展示缓存效率 |
+| **Token 流向图** | 按模型分组的堆叠柱状图（Input/Output/Cache 读/Cache 写） |
+| **模型占比饼图** | 各模型 Token 用量占比可视化 |
+| **请求日志表** | 最近 50 条请求明细：时间、模型、Input、Output、Cache 读、命中率、耗时、HTTP 状态 |
+| **费用估算** | 多提供商定价（DeepSeek/GLM/Qwen/Moonshot/MiniMax/Claude），自动匹配当前模型费率 |
+| **工具栏集成** | 底部工具栏一键开关监控面板，紧凑模式显示 Token 总量/命中率/费用 |
+
+### 产品工具
+
+| 功能 | 说明 |
+|---|---|
 | **PRD 撰写** | AI 辅助生成可开发级产品需求文档，含业务规则、交互逻辑、验收标准 |
 | **竞品分析** | 多维度竞品分析报告，支持 SWOT、波特五力、用户体验地图等框架 |
 | **原型设计** | 一句话需求生成 HTML 交互原型，内置 Frontend Design Skill 自动优化 UI |
-| **提示词库** | 精选 12 个高频场景 Prompt 模板（PRD/竞品/用户故事/技术评估等），支持自定义 |
-| **自动化调度引擎** | 预设模板 + 自定义表单，支持单次/每天/按间隔执行，精确到分钟 |
-| **实时流量监控** | 解析 `~/.claude/projects/*/session.jsonl`，展示 Token 消耗、缓存命中率、预估费用 |
-| **多标签终端** | 不同目录并行运行多个 Claude Code 会话 |
-| **状态栏** | 实时显示当前模型、费用、会话数、工作目录 |
+| **提示词库** | 精选 12+ 高频场景 Prompt 模板（PRD/竞品/用户故事/技术评估等），支持自定义 |
+| **技能管理** | 浏览和管理 AI 技能插件 |
+
+### 自动化调度引擎
+
+| 功能 | 说明 |
+|---|---|
+| **12 个预设模板** | 每日 AI 新闻、英语单词、睡前故事、周报、电影推荐、历史上的今天等 |
+| **三种执行频率** | 单次执行 / 每天定时 / 按间隔循环（精确到分钟） |
+| **自动执行** | 到点自动创建终端 → 发送 Prompt → 自动切换到对应标签页 |
+| **持久化存储** | 任务配置保存到 `~/.claude/automation-tasks.json`，重启自动恢复 |
+
+### 微信机器人 (WeChat ClawBot)
+
+| 功能 | 说明 |
+|---|---|
+| **iLink 协议接入** | 基于微信官方 ilinkai.weixin.qq.com REST API，无需破解微信客户端 |
+| **扫码登录** | 本地生成 QR 码 SVG（无需外部 API），手机扫码自动连接 |
+| **自动重连** | 持久化 Token + UIN + Cursor，重启应用自动恢复连接 |
+| **AI 对话路由** | 微信消息通过本地 AI 管道处理，支持 6 种 Bot 人设（助手/翻译/代码/诗人/分析师/梗图达人） |
+| **语音消息** | SILK → WAV 解码 + 时长提取（需 `silk-wasm`） |
+| **视频消息** | MP4/MOV 元数据解析（时长/分辨率/格式） |
+| **开机自启** | 用户登录后静默启动（VBS 后台调用，不弹窗） |
+
+### 本地多模态视觉（🆕 Qwen3.5-9B VLM）
+
+支持**图片识别**，图片通过本地的 **Qwen3.5-9B VLM**（llama.cpp 运行）分析后，将文字描述发送给 DeepSeek 等纯文本模型，实现"**零成本多模态**"。
+
+```
+用户发送图片 + 文字
+    │
+    ▼
+[检测当前模型是否支持视觉]
+    │
+    ├── 支持视觉 (Qwen DashScope)
+    │   └── 图片+文字 → 直接发送 → AI 回复
+    │
+    └── 不支持视觉 (DeepSeek 等)
+        ├── 图片 → Qwen3.5-9B VLM (本地 F:\llama.cpp) → 中文描述
+        ├── 描述 + 用户原文 → DeepSeek → AI 回复
+        └── llama.cpp 未运行 → 提示安装指引
+```
+
+| 功能 | 说明 |
+|---|---|
+| **本地推理** | Qwen3.5-9B Q4_K_M (5.29GB) + mmproj (0.86GB)，CPU (AVX2) 运行 |
+| **完全免费** | 无需 API Key，无需联网，纯本地推理 |
+| **桌面应用集成** | `chat.service.ts` 自动检测模型视觉能力，透明路由 |
+| **Claude Code CLI 集成** | `qwen-vision` MCP Server 提供 `analyze_image` / `chat_with_vision` 工具 |
+| **开机自启动** | 服务随用户登录静默启动（计划任务） |
+| **双端可用** | 桌面应用 + 全局 Claude Code CLI 均可调用 |
+
+> ⚠️ **重要警告：图片处理速度会很慢！**
+> 
+> Qwen3.5-9B VLM 运行在 **CPU-only** 模式下（Intel Iris Xe 集成显卡不支持 GPU 加速）：
+> - **首次推理**：需要 40-60 秒预热（模型加载到内存）
+> - **每次图片分析**：30-120 秒（取决于图片大小和复杂度）
+> - **停止按钮**：图片分析期间可随时取消（已接入 AbortController）
+> 
+> 如果有 NVIDIA 独立显卡，可将 `llama-b9701-bin-win-cpu-x64` 替换为 `llama-b9701-bin-win-cuda-12.4-x64`，推理速度可提升 5-10 倍。
+
+### 界面组件
+
+| 功能 | 说明 |
+|---|---|
+| **左侧导航** | 新任务 / 专家技能 / 自动化 / 提示词库 / PRD / 竞品分析 / 原型设计 |
+| **场景标签** | 编程 / 写作 / 分析 / 日常 / 自定义，切换不同 Prompt 模板集 |
+| **底部工具栏** | Craft / Auto / 技能 / 连接器 / 权限 / 流量监控开关 + 实时用量指示器 |
+| **状态栏** | 上下文窗口使用率进度条、当前模型、Token 用量、费用、会话数、工作目录 |
+| **可折叠流量面板** | 右侧面板展示完整监控仪表盘，支持一键折叠/展开 |
 
 ---
 
@@ -81,23 +167,46 @@ npm run package
 
 > 🔔 如果未安装 Claude Code CLI，桌面端启动后会显示红色提示条。
 
----
+### 本地多模态视觉（可选）
+
+如需使用图片识别功能，需要部署本地 Qwen3.5-9B VLM 模型：
+
+```batch
+# 1. 下载 llama.cpp (Windows CPU 版)
+#    从 https://github.com/ggml-org/llama.cpp/releases 下载最新版
+#    解压到 F:\llama.cpp\bin\
+
+# 2. 下载 Qwen3.5-9B VLM GGUF 模型 (~7GB)
+#    Q4_K_M 模型 (5.29GB): https://huggingface.co/jc-builds/Qwen3.5-9B-VLM-Q4_K_M-GGUF
+#    mmproj F16 (0.86GB): 同上仓库
+#    存放位置: F:\llama.cpp\models\
+
+# 3. 启动模型服务
+F:\llama.cpp\start-server.bat
+
+# 4. 验证
+curl http://localhost:8080/health
+```
+
+> ⚠️ 模型服务会在每次系统登录后**自动启动**（已配置开机自启 VBS 脚本）。
+> 
+> ⚠️ **图片识别非常慢**：纯 CPU 推理，每次分析需 30-120 秒。如有 NVIDIA 显卡请使用 CUDA 版 llama.cpp。
 
 ---
 
 ## ⚠️ 重要提醒：模型切换功能已移除
 
-**请不要使用本应用进行模型切换操作。** 早期版本包含内置的模型切换 UI（可视化切换不同 AI 提供商的模型），但在实际使用中可能出现以下问题：
+**请不要使用本应用进行模型切换操作。** 早期版本包含内置的模型切换 UI，但在实际使用中可能出现以下问题：
 
 ### 可能出现的 Bug
 
 | 问题 | 触发条件 |
 |---|---|
-| **切换到其他厂商后无法切回原厂商** | key 解析回退链可能读取正在修改中的 `env` 副本，导致跨厂商的 `ANTHROPIC_AUTH_TOKEN` 污染 — DeepSeek 的 key 被写到 `ANTHROPIC_AUTH_TOKEN`，切回 Claude 时读到的仍是 DeepSeek 的 key |
-| **在 Sidebar 配置 Key 后模型列表不更新** | `handleSetApiKey()` 只调用了 `config:set` 写入 `settings.json`，没写入 `keys.json`，导致 `switchModel` 按 `keys.json[providerId]` 查找不到 key |
-| **自动化执行卡死** | auto-send 路径下直接调用 `chat:send-message` 可能与正在进行的 stream 产生竞态条件，`session.abortController?.abort()` 可能杀死当前活跃请求 |
-| **切页面后 prompt 重复填充** | auto-send 路径不经过 ChatInput 的 `onConsumed()`，`filledPrompt` 未被清空，切页再回来时重新填充 |
-| **Chat Service key 解析拿到错误的 Key** | `getApiConfig()` 找不到 `keys.json[providerId]` 时回退到 `env.ANTHROPIC_AUTH_TOKEN`，可能拿到其他厂商的 key，导致 API 调用失败或费用异常 |
+| **切换到其他厂商后无法切回原厂商** | key 解析回退链可能读取正在修改中的 `env` 副本，导致跨厂商的 `ANTHROPIC_AUTH_TOKEN` 污染 |
+| **在 Sidebar 配置 Key 后模型列表不更新** | `handleSetApiKey()` 只调用了 `config:set` 写入 `settings.json`，没写入 `keys.json` |
+| **自动化执行卡死** | auto-send 路径下直接调用 `chat:send-message` 可能与正在进行的 stream 产生竞态条件 |
+| **切页面后 prompt 重复填充** | auto-send 路径不经过 ChatInput 的 `onConsumed()`，`filledPrompt` 未被清空 |
+| **Chat Service key 解析拿到错误的 Key** | `getApiConfig()` 找不到 `keys.json[providerId]` 时回退到 `env.ANTHROPIC_AUTH_TOKEN` |
 
 ### 建议做法
 
@@ -122,78 +231,6 @@ npm run package
 > ⚡ 本应用仅保留模型名称的**只读展示**（顶部栏和状态栏），所有切换入口已被移除。
 
 ---
-
-## 🛠️ 技术栈
-
-| 层 | 技术 |
-|---|---|
-| 桌面框架 | Electron 35 |
-| UI | React 19 + TypeScript + Tailwind CSS 4 |
-| 终端 | xterm.js + node-pty |
-| 布局 | allotment (VS Code 风格分栏) |
-| 状态管理 | Zustand 5 |
-| 构建 | electron-vite + electron-builder |
-| 调度引擎 | 内置 setTimeout 精确到秒 |
-
----
-
-## 📂 项目结构
-
-```
-src/
-├── main/                          # Electron 主进程
-│   ├── index.ts                   # 窗口创建、生命周期
-│   ├── ipc.ts                     # IPC 通信注册
-│   └── services/
-│       ├── terminal.service.ts    # PTY 终端管理
-│       ├── model.service.ts       # 模型信息读取（只读）
-│       ├── proxy.service.ts       # 流量监控（解析 JSONL）
-│       ├── config.service.ts      # 配置管理
-│       └── scheduler.service.ts   # 自动化调度引擎
-├── preload/                       # 安全通信桥
-│   └── index.ts
-├── renderer/                      # React UI
-│   ├── App.tsx                    # 根组件（路由 + 布局）
-│   ├── components/
-│   │   ├── Terminal/              # xterm.js 终端 + 多标签
-│   │   ├── Chat/                  # Chat 界面（消息列表、输入框、文件上传）
-│   │   ├── Sidebar/               # 流量监控、自动化面板
-│   │   ├── Main/                  # 场景标签、Prompt 模板
-│   │   ├── Pages/                 # 产品工具页（PRD/竞品/原型/技能/提示词库）
-│   │   └── StatusBar/             # 底部状态栏（模型/Token/费用）
-│   └── stores/                    # Zustand 状态管理
-└── shared/                        # 共享类型定义
-    └── types.ts
-```
-
----
-
-## 🔧 配置说明
-
-### 模型配置
-
-模型信息（名称、服务商）从 `~/.claude/settings.json` 中的 `env.ANTHROPIC_MODEL` 和 `env.ANTHROPIC_BASE_URL` 读取。
-
-本应用**不支持 UI 切换模型**。如需切换，请使用以下方式之一：
-
-**方式一：使用 Claude Code CLI 自带的 `/model` 命令**
-在终端中输入：
-```
-/model deepseek-v4-flash
-```
-
-**方式二：直接编辑 `~/.claude/settings.json`**
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
-    "ANTHROPIC_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key"
-  }
-}
-```
-
-> ⚠️ 不正确的模型切换可能导致 API Key 混乱。推荐仅使用 `claude` CLI 的 `/model` 命令进行切换。
 
 ## 🤖 自动化调度
 
@@ -240,6 +277,130 @@ src/
 
 ---
 
+## 📊 流量监控仪表盘
+
+### 数据采集
+
+应用启动后自动开始监控，每 2 秒扫描 `~/.claude/projects/*/session.jsonl` 文件（Claude Code CLI 自动维护的会话日志），提取每次 API 调用的 Token 使用数据。
+
+### 可视化图表
+
+| 图表 | 类型 | 说明 |
+|---|---|---|
+| 环形仪表盘 | Canvas | 缓存命中率实时仪表，绿/黄/红三色区间 |
+| 堆叠柱状图 | Canvas | 按模型分组的 Token 流向（Input/Output/Cache 读/Cache 写） |
+| 趋势折线图 | Canvas | 最近 30 次请求的缓存命中率变化趋势 |
+| 模型占比饼图 | Canvas | 各模型 Token 用量占比，自动标注百分比 |
+| 请求日志表 | HTML Table | 最近 50 条请求的完整明细 |
+
+### 费用估算
+
+根据模型名称自动匹配定价策略，支持以下提供商的 CN¥/百万 Token 定价：
+
+| 提供商 | Input | Cache Hit | Cache Write | Output |
+|---|---|---|---|---|
+| DeepSeek | ¥2.00 | ¥0.25 | ¥4.00 | ¥8.00 |
+| GLM (智谱) | ¥5.00 | ¥1.00 | ¥5.00 | ¥20.00 |
+| Qwen (通义千问) | ¥3.50 | ¥0.70 | ¥3.50 | ¥14.00 |
+| Moonshot | ¥12.00 | ¥3.00 | ¥12.00 | ¥12.00 |
+| MiniMax | ¥5.00 | ¥1.00 | ¥5.00 | ¥15.00 |
+| Claude (Anthropic) | $3.00 × 7.2 | $0.375 × 7.2 | $3.75 × 7.2 | $15.00 × 7.2 |
+
+### 使用方式
+
+- **工具栏**：底部工具栏实时显示 Token 总量、缓存命中率、预估费用，点击"流量"按钮开关右侧仪表盘
+- **仪表盘面板**：右侧面板展示完整图表和请求日志，支持折叠为图标模式
+- **状态栏**：底部状态栏显示上下文窗口使用率、模型、Token、费用
+
+---
+
+## 🛠️ 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 桌面框架 | Electron 35 |
+| UI | React 19 + TypeScript + Tailwind CSS 4 |
+| 终端 | xterm.js + node-pty |
+| 布局 | allotment (VS Code 风格分栏) |
+| 状态管理 | Zustand 5 |
+| Canvas 图表 | 原生 Canvas 2D API（环形仪表/柱状图/折线图/饼图） |
+| 构建 | electron-vite + electron-builder |
+| 调度引擎 | 内置 setTimeout 精确到秒 |
+| 本地 LLM | llama.cpp b9701 (CPU/AVX2) |
+| 多模态模型 | Qwen3.5-9B VLM (Q4_K_M GGUF + mmproj F16) |
+| 语音解码 | silk-wasm (SILK → WAV) |
+| MCP 协议 | @modelcontextprotocol/sdk (stdio transport) |
+
+---
+
+## 📂 项目结构
+
+```
+src/
+├── main/                              # Electron 主进程
+│   ├── index.ts                       # 窗口创建、生命周期
+│   ├── ipc.ts                         # IPC 通信注册
+│   └── services/
+│       ├── terminal.service.ts        # PTY 终端管理（多会话）
+│       ├── model.service.ts           # 模型信息读取（只读）
+│       ├── proxy.service.ts           # 流量监控（解析 JSONL + 多提供商定价）
+│       ├── chat.service.ts            # AI Chat 对话服务（含多模态视觉路由）
+│       ├── config.service.ts          # 配置管理
+│       ├── scheduler.service.ts       # 自动化调度引擎
+│       └── wechat-bot.service.ts      # 微信机器人（iLink 协议）
+├── preload/                           # 安全通信桥
+│   └── index.ts
+├── renderer/                          # React UI
+│   ├── App.tsx                        # 根组件（路由 + 布局 + IPC 事件）
+│   ├── main.tsx                       # React 入口
+│   ├── styles/
+│   │   └── global.css                 # Tailwind + 设计 Token + 动画
+│   ├── components/
+│   │   ├── Terminal/                  # xterm.js 终端 + 多标签页
+│   │   │   ├── TerminalView.tsx       # 终端视图
+│   │   │   └── TerminalTabs.tsx       # 标签页组件
+│   │   ├── Chat/                      # AI Chat 界面
+│   │   │   ├── ChatTerminalView.tsx   # 聊天主视图（消息列表 + 输入框 + 模板）
+│   │   │   ├── ChatInput.tsx          # 输入框（文本/文件/图片上传）
+│   │   │   ├── MessageList.tsx        # 消息列表
+│   │   │   ├── AssistantMessage.tsx   # AI 回复（Markdown 渲染）
+│   │   │   └── UserMessage.tsx        # 用户消息
+│   │   ├── Sidebar/                   # 侧边栏
+│   │   │   ├── Sidebar.tsx            # 右侧面板容器（可折叠）
+│   │   │   ├── TrafficMonitor.tsx     # 流量监控仪表盘（Canvas 图表 + 日志表）
+│   │   │   ├── AutomationPanel.tsx    # 自动化调度面板
+│   │   │   └── LeftNav.tsx            # 左侧导航（页面切换）
+│   │   ├── Main/                      # 主区域组件
+│   │   │   ├── BottomToolbar.tsx      # 底部工具栏（工具按钮 + 流量开关 + 实时用量）
+│   │   │   ├── ScenarioTabs.tsx       # 场景标签页
+│   │   │   └── PromptTemplates.tsx    # Prompt 模板选择器
+│   │   ├── Pages/                     # 产品工具页
+│   │   │   ├── PrdPage.tsx            # PRD 撰写
+│   │   │   ├── AnalysisPage.tsx       # 竞品分析
+│   │   │   ├── PrototypePage.tsx      # 原型设计
+│   │   │   ├── SkillsPage.tsx         # 技能管理
+│   │   │   ├── PromptLibraryPage.tsx  # 提示词库
+│   │   │   ├── WechatBotPage.tsx      # 微信机器人管理页
+│   │   │   └── ToolPage.tsx           # 工具页通用布局
+│   │   ├── StatusBar/                 # 底部状态栏
+│   │   │   └── StatusBar.tsx          # 上下文窗口 / 模型 / Token / 费用
+│   │   └── Icons.tsx                  # SVG 图标组件
+│   └── stores/                        # Zustand 状态管理
+│       ├── sessionStore.ts            # 终端会话状态
+│       ├── chatStore.ts               # 聊天消息状态
+│       ├── monitorStore.ts            # 流量监控数据状态
+│       ├── toolStore.ts               # 工具页状态
+│       └── wechatBotStore.ts          # 微信机器人状态
+├── shared/                            # 共享类型定义
+│   ├── types.ts
+│   ├── wechat-types.ts                # 微信机器人协议类型
+│   └── bot-personas.ts                # 机器人人设模板 (6 种)
+└── scripts/
+    └── qwen-vision-mcp.mjs            # Qwen 视觉 MCP Server (Claude Code CLI 用)
+```
+
+---
+
 ## 🏗️ 构建 & 打包
 
 ```bash
@@ -252,6 +413,62 @@ npm run package
 # 输出
 # dist/win-unpacked/Claude Code Desktop.exe  (~290MB)
 ```
+
+---
+
+## 🔧 配置说明
+
+### 模型配置
+
+模型信息（名称、服务商）从 `~/.claude/settings.json` 中的 `env.ANTHROPIC_MODEL` 和 `env.ANTHROPIC_BASE_URL` 读取并只读展示。
+
+本应用**不支持 UI 切换模型**。如需切换，请使用以下方式之一：
+
+**方式一：使用 Claude Code CLI 自带的 `/model` 命令**
+在终端中输入：
+```
+/model deepseek-v4-flash
+```
+
+**方式二：直接编辑 `~/.claude/settings.json`**
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key"
+  }
+}
+```
+
+### Claude Code CLI 全局多模态配置
+
+在 `~/.claude/.mcp.json` 中配置 `qwen-vision` MCP Server：
+
+```json
+{
+  "mcpServers": {
+    "qwen-vision": {
+      "command": "node",
+      "args": ["path/to/scripts/qwen-vision-mcp.mjs"],
+      "env": {
+        "LLAMA_URL": "http://localhost:8080",
+        "QWEN_MODEL": "qwen3.5-9b"
+      }
+    }
+  }
+}
+```
+
+配置后在 Claude Code CLI 中可使用：
+- `analyze_image` — 分析单张图片内容
+- `chat_with_vision` — 多图片+文本对话
+
+> 💡 `~/.claude/providers.json` 中已配置 `llama.cpp` 提供商，桌面应用可在模型切换器中直接选择。
+
+### 自动化任务配置
+
+任务数据存储在 `~/.claude/automation-tasks.json`，可通过左侧导航 → 自动化面板进行可视化管理。
 
 ---
 
@@ -271,3 +488,5 @@ MIT
 - [xterm.js](https://xtermjs.org/) - 终端模拟器
 - [node-pty](https://github.com/microsoft/node-pty) - PTY 伪终端
 - [electron-vite](https://electron-vite.org/) - Electron 构建工具
+- [Zustand](https://zustand.docs.pmnd.rs/) - 轻量状态管理
+- [Tailwind CSS](https://tailwindcss.com/) - 实用优先的 CSS 框架

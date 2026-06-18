@@ -8,9 +8,10 @@ export interface ScheduledTask {
   id: string
   name: string
   prompt: string
-  frequency: 'once' | 'daily' | 'interval'
+  frequency: 'once' | 'daily' | 'weekly' | 'interval'
   dailyTime: string
   intervalMinutes: number
+  weekDay: number
   activeFrom: string
   activeTo: string
   createdAt: number
@@ -124,8 +125,8 @@ export class SchedulerService extends EventEmitter {
         // Re-schedule for next run
         if (task.frequency === 'interval') {
           setTimeout(() => this.scheduleTask(task), 1000)
-        } else if (task.frequency === 'daily') {
-          // Schedule next day
+        } else if (task.frequency === 'daily' || task.frequency === 'weekly') {
+          // Schedule next day/week
           task.lastRunAt = Date.now()
           this.save()
           setTimeout(() => this.scheduleTask(task), 2000)
@@ -167,8 +168,31 @@ export class SchedulerService extends EventEmitter {
       case 'daily': {
         if (!task.dailyTime) return null
         let delay = this.msUntil(task.dailyTime)
-        if (delay < 0) delay += 24 * 3600_000 // tomorrow
+        if (delay < 0) {
+          // New task within 5 min of target time → execute immediately
+          if (!task.lastRunAt && delay > -300_000) {
+            console.log(`[Scheduler] Time ${task.dailyTime} just passed — executing now`)
+            return 500
+          }
+          delay += 24 * 3600_000 // tomorrow
+        }
         return delay
+      }
+
+      case 'weekly': {
+        if (!task.dailyTime) return null
+        const targetWeekDay = task.weekDay ?? 1 // default Monday
+        const nowDay = new Date().getDay()
+        let daysUntil = targetWeekDay - nowDay
+        if (daysUntil < 0) daysUntil += 7 // next week
+        if (daysUntil === 0) {
+          // Same day — check time
+          const delay = this.msUntil(task.dailyTime)
+          if (delay >= 0) return delay
+          daysUntil = 7 // time passed, next week
+        }
+        const delay = daysUntil * 24 * 3600_000 + this.msUntil(task.dailyTime)
+        return Math.max(0, delay)
       }
 
       case 'interval': {

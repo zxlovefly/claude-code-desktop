@@ -11,8 +11,8 @@ asar: false
 win:
   target:
     - portable
-    - nsis
-  icon: build/icon.ico
+  icon: build/icon.png
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

@@ -13,6 +13,8 @@ import { ProxyService } from './services/proxy.service'
 import { ConfigService } from './services/config.service'
 import { SchedulerService } from './services/scheduler.service'
 import { ChatService } from './services/chat.service'
+import { WechatBotService } from './services/wechat-bot.service'
+import { getPersona } from '../shared/bot-personas'
 import type { ProxyStats, SessionInfo } from '../shared/types'
 
 export function registerIpcHandlers(): void {
@@ -63,6 +65,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('model:current', () => {
     return model.getCurrentModel()
+  })
+
+  ipcMain.handle('model:list', () => {
+    return model.getAvailableModels()
+  })
+
+  ipcMain.handle('model:switch', (_event, newModelId: string) => {
+    return model.switchModel(newModelId)
   })
 
   // ── Keys IPC (centralized API key storage) ──
@@ -117,11 +127,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('app:check-claude', () => {
-    const { execSync } = require('child_process')
+  ipcMain.handle('app:check-claude', async () => {
+    const { exec } = require('child_process')
     try {
-      const result = execSync('claude --version', { encoding: 'utf-8', timeout: 5000 })
-      return { installed: true, version: result.trim() }
+      const result = await new Promise<string>((resolve, reject) => {
+        exec('claude --version', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
+          if (error) reject(error)
+          else resolve(stdout.trim())
+        })
+      })
+      return { installed: true, version: result }
     } catch {
       return { installed: false, version: '' }
     }
@@ -182,6 +197,11 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('chat:reset-session', (_event, sessionId: string) => {
+    chat.resetSession(sessionId)
+    return true
+  })
+
   ipcMain.handle('chat:delete-session', (_event, sessionId: string) => {
     chat.deleteSession(sessionId)
     return true
@@ -223,6 +243,95 @@ export function registerIpcHandlers(): void {
   chat.on('error', (sessionId: string, message: string) => {
     const win = BrowserWindow.getAllWindows()[0]
     win?.webContents.send('chat:error', sessionId, message)
+  })
+
+  // ── WeChat Bot IPC ──
+
+  const wechatBot = WechatBotService.getInstance()
+
+  ipcMain.handle('wechat-bot:status', () => {
+    return wechatBot.getStatus()
+  })
+
+  ipcMain.handle('wechat-bot:connect', async () => {
+    await wechatBot.connect()
+    return wechatBot.getStatus()
+  })
+
+  ipcMain.handle('wechat-bot:disconnect', async () => {
+    await wechatBot.disconnect()
+    return wechatBot.getStatus()
+  })
+
+  ipcMain.handle('wechat-bot:settings', () => {
+    return wechatBot.getSettings()
+  })
+
+  ipcMain.handle('wechat-bot:update-settings', (_event, settings: { autoConnect?: boolean }) => {
+    wechatBot.updateSettings(settings)
+    return wechatBot.getSettings()
+  })
+
+  // Persona IPC
+  ipcMain.handle('wechat-bot:personas', () => {
+    return wechatBot.getPersonas()
+  })
+
+  ipcMain.handle('wechat-bot:get-user-persona', (_event, userId: string) => {
+    return {
+      userId,
+      personaId: wechatBot.getUserPersonaId(userId),
+      persona: wechatBot.getUserPersona(userId),
+    }
+  })
+
+  ipcMain.handle('wechat-bot:set-user-persona', (_event, userId: string, personaId: string) => {
+    wechatBot.setUserPersona(userId, personaId)
+    return {
+      userId,
+      personaId,
+      persona: wechatBot.getUserPersona(userId),
+    }
+  })
+
+  ipcMain.handle('wechat-bot:all-personas', () => {
+    return wechatBot.getAllUserPersonas()
+  })
+
+  ipcMain.handle('wechat-bot:default-persona', () => {
+    return {
+      personaId: wechatBot.getDefaultPersonaId(),
+      persona: getPersona(wechatBot.getDefaultPersonaId()),
+    }
+  })
+
+  ipcMain.handle('wechat-bot:set-default-persona', (_event, personaId: string) => {
+    wechatBot.setDefaultPersona(personaId)
+    return {
+      personaId,
+      persona: getPersona(personaId),
+    }
+  })
+
+  // Forward WeChat bot events to renderer
+  wechatBot.on('status-changed', (data) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('wechat-bot:status-changed', data)
+  })
+
+  wechatBot.on('qrcode', (data) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('wechat-bot:qrcode', data)
+  })
+
+  wechatBot.on('message-received', (data) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('wechat-bot:message-received', data)
+  })
+
+  wechatBot.on('message-sent', (data) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('wechat-bot:message-sent', data)
   })
 
   // ── File/Directory Dialog ──

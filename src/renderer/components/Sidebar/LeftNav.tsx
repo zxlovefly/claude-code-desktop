@@ -1,4 +1,4 @@
-import { IconNewTask, IconExperts, IconAutomation, IconMore } from '../Icons'
+import { IconNewTask, IconExperts, IconAutomation, IconMore, IconWechat } from '../Icons'
 import type { SVGProps } from 'react'
 
 // Additional icons needed
@@ -15,7 +15,7 @@ function IconPrompts(props: SVGProps<SVGSVGElement>) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
 }
 
-export type NavPage = 'new-task' | 'experts' | 'automation' | 'prd' | 'analysis' | 'prototype' | 'prompts'
+export type NavPage = 'new-task' | 'experts' | 'automation' | 'prd' | 'analysis' | 'prototype' | 'prompts' | 'wechat-bot'
 
 interface LeftNavProps {
   activePage: NavPage
@@ -30,6 +30,7 @@ const NAV_ITEMS: { id: NavPage; label: string; Icon: typeof IconNewTask; section
   { id: 'analysis', label: '竞品分析', Icon: IconAnalysis },
   { id: 'prototype', label: '原型设计', Icon: IconPrototype },
   { id: 'prompts', label: '提示词库', Icon: IconPrompts, section: '资源' },
+  { id: 'wechat-bot', label: '微信机器人', Icon: IconWechat, section: '集成' },
 ]
 
 export function LeftNav({ activePage, onNavigate }: LeftNavProps) {

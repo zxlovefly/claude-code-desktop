@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMonitorStore } from '../../stores/monitorStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { IconFolder } from '../Icons'
 
 interface CurrentModel {
   provider: string
@@ -129,7 +130,7 @@ export function StatusBar() {
       {/* 工作目录 */}
       {activeSession && (
         <span className="text-[#9a9ab0] truncate max-w-[250px] text-[10px]" title={activeSession.cwd}>
-          📂 {activeSession.cwd}
+          <IconFolder className="inline align-middle mr-0.5" />{activeSession.cwd}
         </span>
       )}
     </div>

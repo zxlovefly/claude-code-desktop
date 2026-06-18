@@ -59,6 +59,18 @@ export function IconMore(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function IconWechat(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8 10.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" fill="currentColor" stroke="none" />
+      <path d="M16 10.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" fill="currentColor" stroke="none" />
+      <path d="M12 2C6.477 2 2 6.015 2 11c0 2.4 1.2 4.5 3 6l-1 3 3.5-1.5c1.2.5 2.5.5 4 .5l.5-.5" />
+      <path d="M16 14c3.5 0 6-2.5 6-5.5S19.5 3 16 3s-6 2.5-6 5.5c0 1.5.5 2.5 1.5 3.5L10 14l2 2 1-1.5" />
+      <path d="M14 16l2 2 4-4" />
+    </svg>
+  )
+}
+
 // ── Scenario Icons ──
 
 export function IconCode(props: SVGProps<SVGSVGElement>) {
@@ -146,6 +158,105 @@ export function IconSend(props: SVGProps<SVGSVGElement>) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  )
+}
+
+// ── Status / Monitor Icons (hand-drawn, no emoji) ──
+
+export function IconChart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="12" width="4" height="9" rx="1" />
+      <rect x="10" y="7" width="4" height="14" rx="1" />
+      <rect x="17" y="3" width="4" height="18" rx="1" />
+    </svg>
+  )
+}
+
+export function IconTarget(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  )
+}
+
+export function IconTrendUp(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  )
+}
+
+export function IconPieChart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z" />
+    </svg>
+  )
+}
+
+export function IconClipboard(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M9 14l2 2 4-4" />
+    </svg>
+  )
+}
+
+export function IconCoin(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v12M9 9.5c0-.8.7-1.5 1.5-1.5h1c1 0 2 .7 2 1.5s-.7 1.5-1.5 1.5h-2c-.8 0-1.5.7-1.5 1.5s.7 1.5 1.5 1.5h1c.8 0 1.5-.7 1.5-1.5" />
+    </svg>
+  )
+}
+
+export function IconFolder(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-1.5-2H5a2 2 0 00-2 2z" />
+    </svg>
+  )
+}
+
+export function IconMonitor(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+      <path d="M7 10l2 2 3-2 4 3" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
+// ── Provider Icons ──
+
+export function IconDeepSeek(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...props}>
+      <rect width="24" height="24" rx="6" fill="#4D6BFE" />
+      <path d="M5 8.5c0-.3.2-.5.5-.5h2c.3 0 .5.2.5.5v7c0 .3-.2.5-.5.5h-2a.5.5 0 01-.5-.5v-7z" fill="#fff" opacity="0.9" />
+      <path d="M9 6.5c0-.3.2-.5.5-.5h2c.3 0 .5.2.5.5v11c0 .3-.2.5-.5.5h-2a.5.5 0 01-.5-.5v-11z" fill="#fff" opacity="0.7" />
+      <path d="M13 9c0-.3.2-.5.5-.5h2c.3 0 .5.2.5.5v6c0 .3-.2.5-.5.5h-2a.5.5 0 01-.5-.5V9z" fill="#fff" opacity="0.5" />
+      <path d="M17 10.5c0-.3.2-.5.5-.5h1c.3 0 .5.2.5.5v3c0 .3-.2.5-.5.5h-1a.5.5 0 01-.5-.5v-3z" fill="#fff" opacity="0.3" />
+    </svg>
+  )
+}
+
+export function IconAnthropic(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...props}>
+      <rect width="24" height="24" rx="6" fill="#D97757" />
+      <path d="M14.5 6l-2.5 7-2.5-7H7l4 10h2l4-10h-2.5z" fill="#fff" />
     </svg>
   )
 }

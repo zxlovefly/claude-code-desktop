@@ -1,63 +1,67 @@
-import { IconCraft, IconAuto, IconSkill, IconConnector, IconPermission } from '../Icons'
+import { useMemo } from 'react'
+import { IconTarget, IconCoin, IconMonitor } from '../Icons'
+import { useMonitorStore } from '../../stores/monitorStore'
 
 interface BottomToolbarProps {
-  onCraft: () => void
-  onAuto: () => void
-  onSkill: () => void
-  onConnector: () => void
-  craftActive: boolean
-  autoActive: boolean
+  monitorVisible: boolean
+  onToggleMonitor: () => void
 }
 
-const TOOLS = [
-  { id: 'craft', label: 'Craft', Icon: IconCraft, desc: '工程化' },
-  { id: 'auto', label: 'Auto', Icon: IconAuto, desc: '自动调试' },
-  { id: 'skill', label: '技能', Icon: IconSkill, desc: '插件' },
-  { id: 'connector', label: '连接器', Icon: IconConnector, desc: 'Git/文件夹' },
-  { id: 'permission', label: '权限', Icon: IconPermission, desc: '访问控制' },
-] as const
+function fmt(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n || 0)
+}
 
-export function BottomToolbar({ onCraft, onAuto, onSkill, onConnector, craftActive, autoActive }: BottomToolbarProps) {
-  const handleClick = (id: string) => {
-    switch (id) {
-      case 'craft': onCraft(); break
-      case 'auto': onAuto(); break
-      case 'skill': onSkill(); break
-      case 'connector': onConnector(); break
-    }
-  }
+export function BottomToolbar({ monitorVisible, onToggleMonitor }: BottomToolbarProps) {
+  const { stats } = useMonitorStore()
+
+  const liveStats = useMemo(() => {
+    if (!stats) return null
+    const ti = stats.total_input_tokens || 0
+    const to = stats.total_output_tokens || 0
+    const cr = stats.total_cache_read_tokens || 0
+    const totalPrompt = ti + cr
+    const hitRate = totalPrompt > 0 ? (cr / totalPrompt * 100) : 0
+    const totalAll = totalPrompt + to
+    const cost = stats.total_cost_estimate || 0
+    const currency = stats.cost_currency || 'CNY'
+    return { totalAll, hitRate, cost, currency }
+  }, [stats])
 
   return (
     <div className="flex items-center gap-1 px-4 py-2 bg-white border-t border-[#e5e6eb]">
-      {TOOLS.map((tool) => {
-        let isActive = false
-        if (tool.id === 'craft') isActive = craftActive
-        if (tool.id === 'auto') isActive = autoActive
-
-        return (
-          <button
-            key={tool.id}
-            onClick={() => handleClick(tool.id)}
-            title={tool.desc}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150
-              ${isActive
-                ? 'bg-[#6c5ce7]/10 text-[#6c5ce7] border border-[#6c5ce7]/20'
-                : 'text-[#4a4a6a] hover:bg-[#f0f0f5] border border-transparent'
-              }`}
-          >
-            <tool.Icon />
-            <span>{tool.label}</span>
-          </button>
-        )
-      })}
       <div className="flex-1" />
-      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[#4a4a6a] bg-[#f0f0f5]">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <rect x="3" y="3" width="18" height="18" rx="3" />
-          <path d="M3 9h18M9 3v18" strokeWidth="1" opacity="0.4" />
-        </svg>
-        <span>默认空间</span>
-      </div>
+
+      {/* Live traffic stats (compact) */}
+      {liveStats && (
+        <div className="flex items-center gap-3 px-2 text-[10px] text-[#9a9ab0] select-none">
+          <span title="Token 总用量" className="flex items-center gap-1">
+            <span className="inline-block w-1 h-1 rounded-full bg-[#6c5ce7]" />
+            {fmt(liveStats.totalAll)}
+          </span>
+          <span title="缓存命中率" className="flex items-center gap-1" style={{ color: liveStats.hitRate >= 70 ? '#00b894' : liveStats.hitRate >= 30 ? '#e17055' : '#d63031' }}>
+            <IconTarget />{liveStats.hitRate.toFixed(0)}%
+          </span>
+          <span title="预估费用" className="flex items-center gap-1">
+            <IconCoin />{liveStats.currency === 'CNY' ? '¥' : '$'}{liveStats.cost.toFixed(3)}
+          </span>
+        </div>
+      )}
+
+      {/* Traffic monitor toggle */}
+      <button
+        onClick={onToggleMonitor}
+        title="流量监控仪表盘"
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150
+          ${monitorVisible
+            ? 'bg-[#6c5ce7]/10 text-[#6c5ce7] border border-[#6c5ce7]/20'
+            : 'text-[#4a4a6a] hover:bg-[#f0f0f5] border border-transparent'
+          }`}
+      >
+        <IconMonitor />
+        <span>流量</span>
+      </button>
     </div>
   )
 }

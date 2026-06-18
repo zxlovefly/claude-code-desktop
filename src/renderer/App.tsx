@@ -11,10 +11,14 @@ import { AnalysisPage } from './components/Pages/AnalysisPage'
 import { PrototypePage } from './components/Pages/PrototypePage'
 import { AutomationPanel } from './components/Sidebar/AutomationPanel'
 import { Sidebar } from './components/Sidebar/Sidebar'
+import { BottomToolbar } from './components/Main/BottomToolbar'
+import { StatusBar } from './components/StatusBar/StatusBar'
 import { Mascot } from './components/Icons'
+import { WechatBotPage } from './components/Pages/WechatBotPage'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useMonitorStore } from './stores/monitorStore'
+import { useWechatBotStore } from './stores/wechatBotStore'
 
 interface CurrentModel {
   provider: string
@@ -35,8 +39,11 @@ export default function App() {
   const [filledPrompt, setFilledPrompt] = useState('')
   const [autoSendPrompt, setAutoSendPrompt] = useState('')
   const [workspace, setWorkspace] = useState('')
-  const [chatSessionId] = useState(() => 'chat-' + Date.now())
+  const [chatSessionId, setChatSessionId] = useState(() => 'chat-' + Date.now())
   const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; provider: string; providerName: string }>>([])
+  const [showModelSwitcher, setShowModelSwitcher] = useState(false)
+  const [monitorVisible, setMonitorVisible] = useState(false)
   // Tool page session IDs (separate from chat)
   const [prdSessionId] = useState(() => 'prd-' + Date.now())
   const [analysisSessionId] = useState(() => 'ana-' + Date.now())
@@ -47,6 +54,7 @@ export default function App() {
     window.electron.invoke('terminal:create', '').then((s: unknown) => { if (s) createSession(s as any) })
     window.electron.invoke('app:cwd').then((cwd: unknown) => { if (cwd) setWorkspace(cwd as string) })
     window.electron.invoke('model:current').then((d: unknown) => { if (d) setCurrentModel(d as CurrentModel) })
+    window.electron.invoke('model:list').then((list: unknown) => { if (Array.isArray(list)) setAvailableModels(list as any) })
     window.electron.receive('proxy:stats', (s: unknown) => setStats(s as any))
 
     // Create main chat session (permanent — not tied to ChatTerminalView mount)
@@ -126,6 +134,41 @@ export default function App() {
       }
     })
 
+    // WeChat bot status listener
+    unsubs.push(window.electron.receive('wechat-bot:status-changed', (data: unknown) => {
+      const store = useWechatBotStore.getState()
+      const d = data as { status: string; error?: string | null }
+      if (d) store.setStatus(d.status as any, d.error)
+    }))
+
+    // WeChat bot QR code listener
+    unsubs.push(window.electron.receive('wechat-bot:qrcode', (data: unknown) => {
+      const store = useWechatBotStore.getState()
+      const d = data as { qrcode: string; url: string; svg?: string | null }
+      if (d) store.setQrCode(d.qrcode, d.url, d.svg)
+    }))
+
+    // WeChat bot message received
+    unsubs.push(window.electron.receive('wechat-bot:message-received', (data: unknown) => {
+      const store = useWechatBotStore.getState()
+      const d = data as { userId: string; text: string }
+      if (d) store.addMessage(d.userId, d.text, 'in')
+    }))
+
+    // WeChat bot message sent
+    unsubs.push(window.electron.receive('wechat-bot:message-sent', (data: unknown) => {
+      const store = useWechatBotStore.getState()
+      const d = data as { userId: string; text: string }
+      if (d) store.addMessage(d.userId, d.text, 'out')
+    }))
+
+    // Fetch initial bot status
+    window.electron.invoke('wechat-bot:status').then((s: unknown) => {
+      const store = useWechatBotStore.getState()
+      const st = s as { status: string; connectedAt: number | null; error: string | null }
+      if (st) store.setStatus(st.status as any, st.error)
+    })
+
     return () => { unsubs.forEach(fn => fn()) }
   }, [])
 
@@ -165,6 +208,7 @@ export default function App() {
           {navPage === 'experts' && <SkillsPage />}
           {navPage === 'automation' && <AutomationPanel onExecute={handleAutomationExecute} />}
           {navPage === 'prompts' && <PromptLibraryPage />}
+          {navPage === 'wechat-bot' && <WechatBotPage />}
         </div>
       </div>
     )
@@ -179,19 +223,99 @@ export default function App() {
           <div className="flex items-center gap-3">
             <Mascot />
             <div>
-              <h1 className="text-lg font-extrabold text-[#1a1a2e] tracking-tight leading-none">ZXCODE</h1>
+              <h1 className="text-lg font-extrabold text-[#1a1a2e] tracking-tight leading-none">
+                {currentModel?.display || 'ZXCODE'}
+              </h1>
               <p className="text-[10px] text-[#9a9ab0] mt-0.5">AI 智能开发助手</p>
             </div>
+            {/* New session + button — resets both frontend store and backend session */}
+            <button
+              onClick={() => {
+                // Cancel any in-flight request first
+                window.electron.invoke('chat:cancel', chatSessionId)
+                // Reset backend session (clears messages, system prompt, abort controller)
+                window.electron.invoke('chat:reset-session', chatSessionId)
+                // Clear frontend Zustand store
+                const store = useChatStore.getState()
+                store.clearConversation(chatSessionId)
+                store.setStreaming(false)
+              }}
+              title="新建对话"
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-[#9a9ab0] hover:text-[#6c5ce7] hover:bg-[#f0f0f5] transition-all ml-2"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
           </div>
 
-          {/* Static model display — read-only */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#e5e6eb] text-xs select-none">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-            </svg>
-            <span className="text-[#1a1a2e] font-medium max-w-[160px] truncate">
-              {currentModel?.display || '选择模型'}
-            </span>
+          {/* Model switcher — clickable dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowModelSwitcher(!showModelSwitcher); if (availableModels.length === 0) window.electron.invoke('model:list').then((list: unknown) => { if (Array.isArray(list)) setAvailableModels(list as any) }) }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#e5e6eb] text-xs hover:border-[#6c5ce7]/30 hover:bg-[#f0f0f5] transition-all select-none"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+              </svg>
+              <span className="text-[#1a1a2e] font-medium max-w-[160px] truncate">
+                {currentModel?.display || '选择模型'}
+              </span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[#9a9ab0]">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {showModelSwitcher && availableModels.length > 0 && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowModelSwitcher(false)} />
+                <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-[#e5e6eb] rounded-lg shadow-lg z-20 overflow-hidden max-h-[500px] overflow-y-auto">
+                  <div className="px-3 py-2 text-[10px] text-[#9a9ab0] uppercase tracking-wider border-b border-[#e5e6eb] sticky top-0 bg-white">
+                    切换模型/厂商
+                  </div>
+                  {/* Group by provider */}
+                  {(() => {
+                    const grouped: Record<string, typeof availableModels> = {}
+                    for (const m of availableModels) {
+                      if (!grouped[m.provider]) grouped[m.provider] = []
+                      grouped[m.provider].push(m)
+                    }
+                    return Object.entries(grouped).map(([pid, models]) => (
+                      <div key={pid}>
+                        <div className="px-3 py-1.5 text-[9px] text-[#9a9ab0] uppercase tracking-wider bg-[#f5f6f8] font-semibold">
+                          {models[0]?.providerName || pid}
+                        </div>
+                        {models.map((m) => {
+                          const isCurrent = (currentModel?.modelId || '').replace('[1m]', '') === m.id.split('/')[1]?.replace('[1m]', '')
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={async () => {
+                                await window.electron.invoke('model:switch', m.id)
+                                const updated = await window.electron.invoke('model:current') as any
+                                if (updated) setCurrentModel(updated)
+                                setShowModelSwitcher(false)
+                              }}
+                              className={`w-full text-left px-3 py-2 hover:bg-[#f0f0f5] transition-colors border-b border-[#e5e6eb]/30 last:border-0 ${
+                                isCurrent ? 'bg-[#6c5ce7]/5' : ''
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-[#1a1a2e]">{m.name}</span>
+                                {isCurrent && <span className="text-[9px] text-[#6c5ce7] font-medium">✓</span>}
+                              </div>
+                              {m.description && (
+                                <div className="text-[9px] text-[#9a9ab0] mt-0.5 leading-tight">{m.description}</div>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -208,9 +332,14 @@ export default function App() {
                   autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
                 />
               </div>
+              <BottomToolbar
+                monitorVisible={monitorVisible}
+                onToggleMonitor={() => setMonitorVisible(v => !v)}
+              />
+              <StatusBar />
             </div>
           </div>
-          <Sidebar />
+          {monitorVisible && <Sidebar />}
         </div>
       </div>
     </div>

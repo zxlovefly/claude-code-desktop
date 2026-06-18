@@ -110,6 +110,10 @@ export class TerminalService extends EventEmitter {
 
     env.TERM = 'xterm-256color'
     env.COLORTERM = 'truecolor'
+    // Force UTF-8 encoding everywhere (prevents garbled Chinese on Windows)
+    env.LANG = 'en_US.UTF-8'
+    env.LC_ALL = 'en_US.UTF-8'
+    env.PYTHONIOENCODING = 'utf-8'
     return env
   }
 
@@ -149,9 +153,16 @@ export class TerminalService extends EventEmitter {
 
     this.sessions.set(id, { id, terminal, info })
 
-    // Auto-launch Claude Code after shell is ready
+    // Auto-launch Claude Code after shell is ready.
+    // On Windows, first force PowerShell/Console to UTF-8 so Chinese
+    // characters don't get garbled by the default GBK/CP936 code page.
+    // Setting $OutputEncoding ensures pipes (non-PTY fallback) also use UTF-8.
     setTimeout(() => {
-      this.write(id, 'claude\r')
+      if (process.platform === 'win32') {
+        this.write(id, '$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; chcp 65001 >$null; claude\r')
+      } else {
+        this.write(id, 'claude\r')
+      }
     }, 800)
 
     return info

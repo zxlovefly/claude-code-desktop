@@ -5,20 +5,27 @@ const { clipboard } = require('electron')
 const allowedSendChannels = ['terminal:input', 'terminal:resize']
 const allowedInvokeChannels = [
   'terminal:create', 'terminal:kill', 'terminal:list',
-  'model:current',
+  'model:current', 'model:list', 'model:switch',
   'config:get', 'config:set',
   'proxy:status', 'proxy:toggle',
   'scheduler:list', 'scheduler:add', 'scheduler:update', 'scheduler:delete', 'scheduler:toggle', 'scheduler:runNow',
   'app:get-version', 'app:cwd', 'app:check-claude',
-  'chat:create-session', 'chat:delete-session', 'chat:send-message', 'chat:cancel',
+  'chat:create-session', 'chat:reset-session', 'chat:delete-session', 'chat:send-message', 'chat:cancel',
   'ai:generate',
   'keys:save',
   'dialog:open-file', 'dialog:open-directory',
+  'wechat-bot:status', 'wechat-bot:connect', 'wechat-bot:disconnect',
+  'wechat-bot:settings', 'wechat-bot:update-settings',
+  'wechat-bot:personas', 'wechat-bot:get-user-persona',
+  'wechat-bot:set-user-persona', 'wechat-bot:all-personas',
+  'wechat-bot:default-persona', 'wechat-bot:set-default-persona',
 ]
 const allowedReceiveChannels = [
   'terminal:data', 'terminal:exit',
   'proxy:stats', 'scheduler:executed',
   'chat:delta', 'chat:tool-result', 'chat:done', 'chat:cancelled', 'chat:error',
+  'wechat-bot:status-changed', 'wechat-bot:qrcode',
+  'wechat-bot:message-received', 'wechat-bot:message-sent',
 ]
 
 export interface ElectronAPI {

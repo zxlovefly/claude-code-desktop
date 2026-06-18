@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 interface PromptTemplatesProps {
   onSelect: (prompt: string) => void
   category: string
@@ -64,12 +66,15 @@ const TEMPLATES: Record<string, Record<string, { title: string; prompt: string }
 
 export function PromptTemplates({ onSelect, category, subCategory, onSubCategoryChange }: PromptTemplatesProps) {
   const templates = (TEMPLATES[category]?.[subCategory] || TEMPLATES[category]?.default || []) as { title: string; prompt: string }[]
+  const [expanded, setExpanded] = useState(false)
+
+  const visibleTemplates = expanded ? templates : templates.slice(0, 3)
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-white border-t border-[#e5e6eb] overflow-x-auto custom-scrollbar">
-      {/* Subcategory tabs */}
+    <div className="flex items-center gap-2 px-4 py-2 bg-white border-t border-[#e5e6eb] overflow-x-auto custom-scrollbar min-h-[36px]">
+      {/* Subcategory tabs — show all in scrollable row */}
       {category === 'code' && (
-        <div className="flex items-center gap-1 flex-shrink-0 mr-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {CODE_SUB.map(c => {
             const isActive = subCategory === c.id
             return (
@@ -81,13 +86,23 @@ export function PromptTemplates({ onSelect, category, subCategory, onSubCategory
           })}
         </div>
       )}
-      {/* Templates */}
+      {/* Templates — 3 visible, expandable */}
       <span className="w-px h-4 bg-[#e5e6eb] flex-shrink-0 mx-1" />
-      {templates.map((t, i) => (
+      {visibleTemplates.map((t, i) => (
         <button key={i} onClick={() => onSelect(t.prompt)}
           className="flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] text-[#4a4a6a] bg-[#f0f0f5] hover:bg-[#e5e5f0] hover:text-[#6c5ce7] transition-all whitespace-nowrap"
         >{t.title}</button>
       ))}
+      {templates.length > 3 && !expanded && (
+        <button onClick={() => setExpanded(true)}
+          className="flex-shrink-0 px-2 py-1 rounded-full text-[10px] text-[#6c5ce7] bg-[#6c5ce7]/5 hover:bg-[#6c5ce7]/15 transition-all whitespace-nowrap font-medium"
+        >+{templates.length - 3}</button>
+      )}
+      {expanded && templates.length > 3 && (
+        <button onClick={() => setExpanded(false)}
+          className="flex-shrink-0 px-1.5 py-1 rounded-full text-[10px] text-[#9a9ab0] hover:text-[#4a4a6a] transition-all"
+        >收起</button>
+      )}
     </div>
   )
 }

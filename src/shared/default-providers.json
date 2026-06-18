@@ -9,14 +9,14 @@
       "models": {
         "deepseek-v4-pro": {
           "display": "DeepSeek V4 Pro [1M]",
-          "model_id": "deepseek-v4-pro[1m]",
+          "model_id": "deepseek-v4-pro",
           "context_window": 1048576,
-          "max_output": 32768,
+          "max_output": 393216,
           "pricing": {
-            "input_per_1M": 2,
-            "output_per_1M": 8,
-            "cache_write_per_1M": 4,
-            "cache_hit_per_1M": 0.25,
+            "input_per_1M": 3,
+            "output_per_1M": 6,
+            "cache_write_per_1M": 3,
+            "cache_hit_per_1M": 0.025,
             "currency": "CNY"
           },
           "features": [
@@ -25,18 +25,19 @@
             "tool_use",
             "streaming",
             "vision"
-          ]
+          ],
+          "description": "旗舰模型 · 最强推理能力 · 支持思考模式 · 500并发"
         },
         "deepseek-v4-flash": {
           "display": "DeepSeek V4 Flash [1M]",
           "model_id": "deepseek-v4-flash",
           "context_window": 1048576,
-          "max_output": 32768,
+          "max_output": 393216,
           "pricing": {
-            "input_per_1M": 0.5,
+            "input_per_1M": 1,
             "output_per_1M": 2,
             "cache_write_per_1M": 1,
-            "cache_hit_per_1M": 0.06,
+            "cache_hit_per_1M": 0.02,
             "currency": "CNY"
           },
           "features": [
@@ -44,7 +45,8 @@
             "prompt_caching",
             "tool_use",
             "streaming"
-          ]
+          ],
+          "description": "轻量极速 · 低价高并发 · 2500并发 · 缓存命中仅¥0.02/M"
         },
         "deepseek-chat": {
           "display": "DeepSeek Chat V3",
@@ -258,15 +260,16 @@
         }
       }
     },
-    "dashscope": {
-      "name": "DashScope (阿里云百炼)",
+    "qwen": {
+      "name": "通义千问 (DashScope)",
       "website": "https://dashscope.console.aliyun.com",
-      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
       "auth_env": "DASHSCOPE_API_KEY",
-      "note": "OpenAI-compatible API. Use with OpenRouter for Anthropic compatibility, or use native Claude Code OpenAI mode.",
+      "api_format": "openai",
+      "note": "OpenAI-compatible endpoint. Supports VISION (images).",
       "models": {
-        "dashscope/qwen-plus": {
-          "display": "Qwen Plus (DashScope 原生)",
+        "qwen-plus": {
+          "display": "Qwen Plus [128K]",
           "model_id": "qwen-plus",
           "context_window": 131072,
           "max_output": 8192,
@@ -275,14 +278,11 @@
             "output_per_1M": 2,
             "currency": "CNY"
           },
-          "features": [
-            "openai_compatible",
-            "tool_use",
-            "streaming"
-          ]
+          "features": ["openai_compatible", "tool_use", "streaming", "vision"],
+          "description": "轻量多模态 · 图片识别 · ¥0.8/M输入"
         },
-        "dashscope/qwen-max": {
-          "display": "Qwen Max (DashScope 原生)",
+        "qwen-max": {
+          "display": "Qwen Max [32K]",
           "model_id": "qwen-max",
           "context_window": 32768,
           "max_output": 8192,
@@ -291,11 +291,8 @@
             "output_per_1M": 10,
             "currency": "CNY"
           },
-          "features": [
-            "openai_compatible",
-            "tool_use",
-            "streaming"
-          ]
+          "features": ["openai_compatible", "tool_use", "streaming", "vision"],
+          "description": "旗舰多模态 · 最强视觉 · ¥2.5/M输入"
         }
       }
     },

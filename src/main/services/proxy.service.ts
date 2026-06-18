@@ -26,6 +26,14 @@ export interface MonitorStats {
   cost_currency: string
   by_model: Record<string, { requests: number; input: number; output: number; cache_read: number; cache_write: number; cost: number }>
   last_24h_requests: RequestEntry[]
+  balance?: BalanceInfo
+}
+
+interface BalanceInfo {
+  available: number
+  currency: string
+  checkedAt: number
+  lowBalance: boolean
 }
 
 export class ProxyService extends EventEmitter {
@@ -47,7 +55,10 @@ export class ProxyService extends EventEmitter {
   start(): void {
     console.log('[Monitor] Starting JSONL-based traffic monitor')
     this.poll()
+    this.checkBalance() // initial balance check
     this.timer = setInterval(() => this.poll(), 2000)
+    // Check balance every 5 minutes
+    setInterval(() => this.checkBalance(), 300_000)
   }
 
   stop(): void {
@@ -187,14 +198,115 @@ export class ProxyService extends EventEmitter {
       }
     }
 
-    // DeepSeek pricing: input ¥2/M, cache_hit ¥0.25/M, cache_write ¥4/M, output ¥8/M
+    // ── Multi-provider pricing (CNY per 1M tokens) ──
+    // input_tokens = cache-miss (uncached) input tokens
+    // cache_read_input_tokens = cache-hit tokens (read from cache)
+    // cache_creation_input_tokens = tokens written to cache (priced same as cache-miss input)
+    const pricing: Record<string, { input: number; cache_hit: number; cache_write: number; output: number; currency: string }> = {
+      // DeepSeek V4 Flash: ¥1/M input (cache miss), ¥0.02/M cache hit, ¥2/M output
+      'deepseek-v4-flash': { input: 1.0, cache_hit: 0.02, cache_write: 1.0, output: 2.0, currency: 'CNY' },
+      // DeepSeek V4 Pro: ¥3/M input (cache miss), ¥0.025/M cache hit, ¥6/M output
+      'deepseek-v4-pro':   { input: 3.0, cache_hit: 0.025, cache_write: 3.0, output: 6.0, currency: 'CNY' },
+      // DeepSeek generic / V3 fallback
+      deepseek: { input: 1.0, cache_hit: 0.02, cache_write: 1.0, output: 2.0, currency: 'CNY' },
+      // GLM (智谱): https://open.bigmodel.cn/pricing
+      glm: { input: 5.0, cache_hit: 1.0, cache_write: 5.0, output: 20.0, currency: 'CNY' },
+      // Qwen (通义千问): https://help.aliyun.com/document_detail/2586397.html
+      qwen: { input: 3.5, cache_hit: 0.7, cache_write: 3.5, output: 14.0, currency: 'CNY' },
+      // Moonshot (月之暗面): https://platform.moonshot.cn/docs/pricing
+      moonshot: { input: 12.0, cache_hit: 3.0, cache_write: 12.0, output: 12.0, currency: 'CNY' },
+      // MiniMax: https://platform.minimaxi.com/document/Price
+      minimax: { input: 5.0, cache_hit: 1.0, cache_write: 5.0, output: 15.0, currency: 'CNY' },
+      // Anthropic (Claude): https://www.anthropic.com/pricing
+      claude: { input: 3.0 * 7.2, cache_hit: 0.375 * 7.2, cache_write: 3.75 * 7.2, output: 15.0 * 7.2, currency: 'CNY' },
+    }
+
+    // Match provider from model name (check most specific first)
+    const modelLower = stats.last_24h_requests.slice(-1)[0]?.model?.toLowerCase() || ''
+    let matchedPricing = pricing.deepseek // default fallback
+    // Try exact model match first (e.g. deepseek-v4-pro)
+    if (pricing[modelLower]) {
+      matchedPricing = pricing[modelLower]
+    } else {
+      // Try prefix match
+      for (const [key, p] of Object.entries(pricing)) {
+        if (modelLower.startsWith(key)) { matchedPricing = p; break }
+      }
+    }
+
     stats.total_cost_estimate =
-      stats.total_input_tokens / 1_000_000 * 2.0 +
-      stats.total_cache_read_tokens / 1_000_000 * 0.25 +
-      stats.total_cache_write_tokens / 1_000_000 * 4.0 +
-      stats.total_output_tokens / 1_000_000 * 8.0
+      stats.total_input_tokens / 1_000_000 * matchedPricing.input +
+      stats.total_cache_read_tokens / 1_000_000 * matchedPricing.cache_hit +
+      stats.total_cache_write_tokens / 1_000_000 * matchedPricing.cache_write +
+      stats.total_output_tokens / 1_000_000 * matchedPricing.output
+    stats.cost_currency = matchedPricing.currency
 
     stats.last_24h_requests.sort((a, b) => a.ts - b.ts)
     return stats
+  }
+
+  // ── DeepSeek Balance Check ──
+
+  private async checkBalance(): Promise<void> {
+    try {
+      // Read API key from settings or env
+      const settingsPath = join(homedir(), '.claude', 'settings.json')
+      let apiKey = ''
+      let baseUrl = 'https://api.deepseek.com'
+
+      if (existsSync(settingsPath)) {
+        try {
+          const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+          apiKey = settings?.env?.ANTHROPIC_AUTH_TOKEN || ''
+          baseUrl = (settings?.env?.ANTHROPIC_BASE_URL || baseUrl).replace('/anthropic', '').replace(/\/$/, '')
+        } catch { /* ignore parse errors */ }
+      }
+
+      // Fallback: check process.env
+      if (!apiKey) apiKey = process.env.ANTHROPIC_AUTH_TOKEN || process.env.DEEPSEEK_API_KEY || ''
+
+      if (!apiKey || !apiKey.startsWith('sk-')) {
+        console.log('[Balance] No valid API key found (must start with sk-)')
+        return
+      }
+
+      console.log('[Balance] Checking DeepSeek balance...')
+      const resp = await fetch(`${baseUrl}/user/balance`, {
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!resp.ok) {
+        console.log(`[Balance] API returned ${resp.status}`)
+        return
+      }
+      const data = await resp.json() as any
+      console.log('[Balance] Response:', JSON.stringify(data))
+
+      // DeepSeek: { is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '...', granted_balance: '...', topped_up_balance: '...' }] }
+      const infos = data?.balance_infos
+      if (!infos || !Array.isArray(infos)) {
+        console.log('[Balance] Unexpected response format')
+        return
+      }
+
+      const cny = infos.find((b: any) => b.currency === 'CNY') || infos[0]
+      const available = parseFloat(cny.total_balance) || 0
+      const balance: BalanceInfo = {
+        available,
+        currency: cny.currency || 'CNY',
+        checkedAt: Date.now(),
+        lowBalance: available < 10,
+      }
+
+      console.log(`[Balance] ¥${available.toFixed(2)} (low: ${balance.lowBalance})`)
+
+      if (this.latestStats) {
+        this.latestStats.balance = balance
+        this.emit('stats', this.latestStats)
+      }
+    } catch (e) {
+      console.log('[Balance] Check failed:', (e as Error).message)
+    }
   }
 }

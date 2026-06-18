@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useMonitorStore } from '../../stores/monitorStore'
+import { IconTarget, IconChart, IconTrendUp, IconPieChart, IconClipboard } from '../Icons'
 
 interface CurrentModel {
   provider: string
@@ -94,14 +95,14 @@ function drawGauge(canvas: HTMLCanvasElement | null, rate: number, label: string
 }
 
 function drawBarChart(canvas: HTMLCanvasElement | null, byModel: Record<string, any>) {
-  const s = setupCanvas(canvas, 180)
+  const s = setupCanvas(canvas, 170)
   if (!s) return
   const { ctx, w, h } = s
 
   const models = Object.keys(byModel || {})
   if (!models.length) { drawEmpty(ctx, w, h); return }
 
-  const pad = { top: 24, bottom: 36, left: 46, right: 14 }
+  const pad = { top: 24, bottom: 38, left: 40, right: 16 }
   const cw = w - pad.left - pad.right
   const ch = h - pad.top - pad.bottom
 
@@ -132,10 +133,10 @@ function drawBarChart(canvas: HTMLCanvasElement | null, byModel: Record<string, 
   }
 
   // Bars
-  const barW = Math.min(50, cw / data.length - 8)
+  const barW = Math.min(44, cw / data.length - 8)
   const gap = (cw - barW * data.length) / (data.length + 1)
   const barColors = ['#6c5ce7', '#00b894', '#fdcb6e', '#bc8cff']
-  const barLabels = ['Input', 'Output', 'CacheR', 'CacheW']
+  const barLabels = ['In', 'Out', 'CR', 'CW']
 
   data.forEach((d, idx) => {
     const x = pad.left + gap + idx * (barW + gap)
@@ -148,24 +149,24 @@ function drawBarChart(canvas: HTMLCanvasElement | null, byModel: Record<string, 
         ctx.fillRect(x, yBase, barW, barH)
       }
     })
-    // Label
+    // Label — truncate aggressively
     ctx.fillStyle = '#4a4a6a'
-    ctx.font = '9px sans-serif'
+    ctx.font = '8px sans-serif'
     ctx.textAlign = 'center'
-    const shortName = d.name.length > 12 ? d.name.substring(0, 11) + '…' : d.name
-    ctx.fillText(shortName, x + barW / 2, h - 12)
+    const shortName = d.name.length > 10 ? d.name.substring(0, 9) + '…' : d.name
+    ctx.fillText(shortName, x + barW / 2, h - 14)
   })
 
-  // Legend
+  // Legend — compact
   let lx = pad.left + 2
   barLabels.forEach((lb, i) => {
     ctx.fillStyle = barColors[i]
-    ctx.fillRect(lx, 5, 9, 9)
+    ctx.fillRect(lx, 5, 8, 8)
     ctx.fillStyle = '#9a9ab0'
-    ctx.font = '9px sans-serif'
+    ctx.font = '8px sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillText(lb, lx + 12, 13)
-    lx += ctx.measureText(lb).width + 22
+    ctx.fillText(lb, lx + 10, 12)
+    lx += ctx.measureText(lb).width + 16
   })
 }
 
@@ -355,6 +356,19 @@ export function TrafficMonitor() {
           </div>
         </div>
 
+        {/* DeepSeek balance */}
+        {stats?.balance && (
+          <div className={`rounded-lg p-2.5 border shadow-sm ${stats.balance.lowBalance ? 'bg-red-50 border-red-200' : 'bg-white border-[#e5e6eb]'}`}>
+            <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider">💰 账户余额</div>
+            <div className={`text-sm font-bold mt-0.5 tabular-nums ${stats.balance.lowBalance ? 'text-red-500' : 'text-[#00b894]'}`}>
+              {stats.balance.currency === 'CNY' ? '¥' : '$'}{stats.balance.available.toFixed(2)}
+            </div>
+            {stats.balance.lowBalance && (
+              <div className="text-[9px] text-red-500 mt-1 font-medium">⚠ 余额不足 ¥10，请及时充值</div>
+            )}
+          </div>
+        )}
+
         {/* Token total */}
         <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
           <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider">Token 总用量</div>
@@ -368,25 +382,25 @@ export function TrafficMonitor() {
 
         {/* Cache hit gauge */}
         <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
-          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1">🎯 缓存命中率</div>
+          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1"><IconTarget className="inline align-middle mr-1" />缓存命中率</div>
           <canvas ref={gaugeRef} />
         </div>
 
         {/* Token flow bar chart */}
         <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
-          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1">📊 Token 流向 (按模型)</div>
+          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1 flex items-center gap-1"><IconChart />Token 流向 (按模型)</div>
           <canvas ref={barRef} />
         </div>
 
         {/* Cache hit trend line chart */}
         <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
-          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1">📈 缓存命中率趋势</div>
+          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1 flex items-center gap-1"><IconTrendUp />缓存命中率趋势</div>
           <canvas ref={lineRef} />
         </div>
 
         {/* Model token share pie */}
         <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
-          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1">🔵 模型 Token 占比</div>
+          <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-1 flex items-center gap-1"><IconPieChart />模型 Token 占比</div>
           <canvas ref={pieRef} />
         </div>
 
@@ -404,24 +418,56 @@ export function TrafficMonitor() {
           </div>
         )}
 
-        {/* Recent requests */}
+        {/* Recent requests log table */}
         {requests.length > 0 && (
-          <div className="bg-white rounded-lg p-2.5 border border-[#e5e6eb] shadow-sm">
-            <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider mb-2">最近请求 ({requests.length})</div>
-            <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
-              {requests.slice(-20).reverse().map((req, i) => {
-                const hr = req.cache_hit_rate || 0
-                return (
-                  <div key={i} className="flex items-center gap-2 text-[10px] bg-[#f5f6f8] rounded px-2 py-1">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hr >= 70 ? 'bg-[#00b894]' : hr >= 30 ? 'bg-[#fdcb6e]' : 'bg-[#e17055]'}`} />
-                    <span className="flex-1 truncate text-[#4a4a6a]">{req.model}</span>
-                    <span className="tabular-nums text-[#1a1a2e] font-medium">{fmt(req.input_tokens + req.output_tokens)}</span>
-                    <span className="tabular-nums" style={{ color: hr >= 70 ? '#00b894' : hr >= 30 ? '#fdcb6e' : '#e17055' }}>
-                      {hr.toFixed(0)}%
-                    </span>
-                  </div>
-                )
-              })}
+          <div className="bg-white rounded-lg border border-[#e5e6eb] shadow-sm overflow-hidden">
+            <div className="text-[10px] text-[#9a9ab0] uppercase tracking-wider px-2.5 pt-2.5 pb-1">
+              <IconClipboard className="inline align-middle mr-1" />最近请求日志 ({Math.min(requests.length, 50)})
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[9px] border-collapse">
+                <thead>
+                  <tr className="text-[#9a9ab0] uppercase tracking-wider">
+                    <th className="text-left font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">时间</th>
+                    <th className="text-left font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">模型</th>
+                    <th className="text-right font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">Input</th>
+                    <th className="text-right font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">Output</th>
+                    <th className="text-right font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">Cache读</th>
+                    <th className="text-right font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">命中率</th>
+                    <th className="text-right font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">耗时</th>
+                    <th className="text-center font-medium px-2 py-1.5 border-b border-[#e5e6eb] whitespace-nowrap">状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.slice(-50).reverse().map((req, i) => {
+                    const hr = req.cache_hit_rate || 0
+                    const d = new Date(req.ts)
+                    const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    const modelName = (req.model || '?').length > 16 ? (req.model || '?').substring(0, 15) + '…' : (req.model || '?')
+                    const status = req.status || 200
+                    return (
+                      <tr key={i} className="hover:bg-[#f5f6f8] border-b border-[#e5e6eb]/40 last:border-0">
+                        <td className="px-2 py-1 text-[#9a9ab0] whitespace-nowrap">{time}</td>
+                        <td className="px-2 py-1 text-[#9a9ab0] whitespace-nowrap max-w-[80px] truncate" title={req.model}>{modelName}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-[#1a1a2e] whitespace-nowrap">{fmt(req.input_tokens || 0)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-[#1a1a2e] whitespace-nowrap">{fmt(req.output_tokens || 0)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-[#1a1a2e] whitespace-nowrap">{fmt(req.cache_read || 0)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums font-medium whitespace-nowrap" style={{ color: hitColor(hr) }}>
+                          {hr.toFixed(1)}%
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums text-[#9a9ab0] whitespace-nowrap">{fmtMs(req.elapsed_ms || 0)}</td>
+                        <td className="px-2 py-1 text-center whitespace-nowrap">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-semibold ${
+                            status >= 200 && status < 300 ? 'bg-[#00b894]/10 text-[#00b894]' :
+                            status >= 400 && status < 500 ? 'bg-[#fdcb6e]/10 text-[#fdcb6e]' :
+                            'bg-[#e17055]/10 text-[#e17055]'
+                          }`}>{status}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

@@ -11,8 +11,14 @@ interface MonitorStats {
   by_model?: Record<string, { requests: number; input: number; output: number; cache_read: number; cache_write: number; cost: number }>
   last_24h_requests?: Array<{
     ts: number; model: string; input_tokens: number; output_tokens: number
-    cache_read: number; cache_write: number; cache_hit_rate: number; status: number
+    cache_read: number; cache_write: number; cache_hit_rate: number; elapsed_ms: number; status: number
   }>
+  balance?: {
+    available: number
+    currency: string
+    checkedAt: number
+    lowBalance: boolean
+  }
 }
 
 interface MonitorState {

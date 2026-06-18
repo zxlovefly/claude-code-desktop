@@ -18,7 +18,7 @@ export function TerminalTabs() {
   if (sessions.length === 0 && !activeSessionId) return null
 
   return (
-    <div className="flex items-center bg-[#161b22] border-b border-[#30363d] px-2 pt-1 select-none min-h-[36px]">
+    <>
       {/* 标签页 */}
       <div className="flex-1 flex items-center overflow-x-auto custom-scrollbar gap-0.5">
         {sessions.map((session) => {
@@ -87,6 +87,6 @@ export function TerminalTabs() {
           </button>
         )}
       </div>
-    </div>
+    </>
   )
 }

@@ -40,6 +40,8 @@ export default function App() {
   const [autoSendPrompt, setAutoSendPrompt] = useState('')
   const [workspace, setWorkspace] = useState('')
   const [chatSessionId, setChatSessionId] = useState(() => 'chat-' + Date.now())
+  const chatSessionIdRef = useRef(chatSessionId)
+  chatSessionIdRef.current = chatSessionId
   const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; provider: string; providerName: string }>>([])
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -51,6 +53,19 @@ export default function App() {
 
   useEffect(() => {
     if (initialized.current) return; initialized.current = true
+
+    // ── Clear tool-related temporary data on app startup ──
+    // Users expect a fresh state when restarting the app. History records
+    // (persisted by historyStore) are preserved — only the in-progress
+    // output and form drafts are cleared.
+    try { localStorage.removeItem('zxcode-tool-outputs') } catch {}
+    try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('zxcode-form-')) localStorage.removeItem(k)
+      })
+    } catch {}
+
     window.electron.invoke('terminal:create', '').then((s: unknown) => { if (s) createSession(s as any) })
     window.electron.invoke('app:cwd').then((cwd: unknown) => { if (cwd) setWorkspace(cwd as string) })
     window.electron.invoke('model:current').then((d: unknown) => { if (d) setCurrentModel(d as CurrentModel) })
@@ -65,57 +80,62 @@ export default function App() {
     const unsubs: (() => void)[] = []
 
     unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
-      if (sId !== chatSessionId) return
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
       const store = useChatStore.getState()
-      const msgs = store.getMessages(chatSessionId)
+      const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(chatSessionId, last.content + (text as string), true)
+        store.updateLastMessage(sid, last.content + (text as string), true)
       }
     }))
 
     unsubs.push(window.electron.receive('chat:tool-result', (sId: unknown, info: unknown) => {
-      if (sId !== chatSessionId) return
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
       const { name, result } = info as any
       const store = useChatStore.getState()
-      const msgs = store.getMessages(chatSessionId)
+      const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(chatSessionId, last.content + `\n\n**${name}**\n\`\`\`\n${result}\n\`\`\``, true)
+        store.updateLastMessage(sid, last.content + `\n\n**${name}**\n\`\`\`\n${result}\n\`\`\``, true)
       }
     }))
 
     unsubs.push(window.electron.receive('chat:done', (sId: unknown) => {
-      if (sId !== chatSessionId) return
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
       const store = useChatStore.getState()
-      const msgs = store.getMessages(chatSessionId)
+      const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(chatSessionId, last.content, false)
+        store.updateLastMessage(sid, last.content, false)
       }
       store.setStreaming(false)
     }))
 
     unsubs.push(window.electron.receive('chat:cancelled', (sId: unknown) => {
-      if (sId !== chatSessionId) return
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
       const store = useChatStore.getState()
-      const msgs = store.getMessages(chatSessionId)
+      const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(chatSessionId, last.content + '\n\n*[已取消]*', false)
+        store.updateLastMessage(sid, last.content + '\n\n*[已取消]*', false)
       }
       store.setStreaming(false)
     }))
 
     unsubs.push(window.electron.receive('chat:error', (sId: unknown, message: unknown) => {
-      if (sId !== chatSessionId) return
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
       const store = useChatStore.getState()
-      const msgs = store.getMessages(chatSessionId)
+      const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(chatSessionId, last.content || `Error: ${message}`, false)
+        store.updateLastMessage(sid, last.content || `Error: ${message}`, false)
       } else {
-        store.addMessage(chatSessionId, {
+        store.addMessage(sid, {
           id: 'err-' + Date.now(),
           role: 'assistant' as const,
           content: `Error: ${message}`,
@@ -148,6 +168,48 @@ export default function App() {
       if (d) store.setQrCode(d.qrcode, d.url, d.svg)
     }))
 
+    // ── Permanent tool session output persistence ──
+    // These listeners survive page navigation so streaming output is never lost
+    // when the user switches pages while a tool is generating.
+    // Only persist raw deltas and manage the streaming marker — do NOT append
+    // status messages ([已取消]/Error:) here; the per-page listeners handle that.
+    unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
+      const sid = sId as string
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      if (!persistKey) return
+      try {
+        const saved = localStorage.getItem('zxcode-tool-outputs')
+        const data = saved ? JSON.parse(saved) : { state: {} }
+        if (!data.state) data.state = {}
+        // Use append pattern — never replace the entire value
+        data.state[persistKey] = (data.state[persistKey] || '') + (text as string)
+        localStorage.setItem('zxcode-tool-outputs', JSON.stringify(data))
+      } catch {}
+    }))
+
+    unsubs.push(window.electron.receive('chat:done', (sId: unknown) => {
+      const sid = sId as string
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      if (!persistKey) return
+      try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
+    }))
+
+    unsubs.push(window.electron.receive('chat:cancelled', (sId: unknown) => {
+      const sid = sId as string
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      if (!persistKey) return
+      // Only clear the streaming marker — the per-page listener appends the status message
+      try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
+    }))
+
+    unsubs.push(window.electron.receive('chat:error', (sId: unknown, message: unknown) => {
+      const sid = sId as string
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      if (!persistKey) return
+      // Only clear the streaming marker — the per-page listener appends the status message
+      try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
+    }))
+
     // WeChat bot message received
     unsubs.push(window.electron.receive('wechat-bot:message-received', (data: unknown) => {
       const store = useWechatBotStore.getState()
@@ -177,6 +239,22 @@ export default function App() {
     setNavPage('new-task')
   }, [])
 
+  const handleNavigateToSession = useCallback((sessionId: string) => {
+    const oldId = chatSessionIdRef.current
+    // Cancel any in-flight request on old session
+    window.electron.invoke('chat:cancel', oldId)
+    // Create backend session for the target if not exists
+    window.electron.invoke('chat:create-session', sessionId)
+    // Init frontend conversation for target
+    const store = useChatStore.getState()
+    if (!store.getConversation(sessionId)) {
+      store.initConversation(sessionId)
+    }
+    store.setStreaming(false)
+    // Switch to target session
+    setChatSessionId(sessionId)
+  }, [])
+
   const handleAutomationExecute = useCallback((prompt: string) => {
     setAutoSendPrompt(prompt)
     setNavPage('new-task')
@@ -191,9 +269,9 @@ export default function App() {
       <div className="flex h-screen w-screen overflow-hidden bg-[#f5f6f8]">
         <LeftNav activePage={navPage} onNavigate={setNavPage} />
         <div className="flex-1 flex flex-col min-w-0">
-          {navPage === 'prd' && <PrdPage sessionId={prdSessionId} />}
-          {navPage === 'analysis' && <AnalysisPage sessionId={analysisSessionId} />}
-          {navPage === 'prototype' && <PrototypePage sessionId={protoSessionId} />}
+          {navPage === 'prd' && <PrdPage sessionId={prdSessionId} onNavigateToPage={setNavPage} />}
+          {navPage === 'analysis' && <AnalysisPage sessionId={analysisSessionId} onNavigateToPage={setNavPage} />}
+          {navPage === 'prototype' && <PrototypePage sessionId={protoSessionId} onNavigateToPage={setNavPage} />}
         </div>
       </div>
     )
@@ -228,17 +306,23 @@ export default function App() {
               </h1>
               <p className="text-[10px] text-[#9a9ab0] mt-0.5">AI 智能开发助手</p>
             </div>
-            {/* New session + button — resets both frontend store and backend session */}
+            {/* New session + button — creates a new independent conversation */}
             <button
               onClick={() => {
-                // Cancel any in-flight request first
-                window.electron.invoke('chat:cancel', chatSessionId)
-                // Reset backend session (clears messages, system prompt, abort controller)
-                window.electron.invoke('chat:reset-session', chatSessionId)
-                // Clear frontend Zustand store
+                const oldId = chatSessionIdRef.current
+                const newId = 'chat-' + Date.now()
+                // Cancel any in-flight request on old session
+                window.electron.invoke('chat:cancel', oldId)
+                // Reset old backend session
+                window.electron.invoke('chat:reset-session', oldId)
+                // Create new backend session
+                window.electron.invoke('chat:create-session', newId)
+                // Init new frontend conversation
                 const store = useChatStore.getState()
-                store.clearConversation(chatSessionId)
+                store.initConversation(newId)
                 store.setStreaming(false)
+                // Switch to new session
+                setChatSessionId(newId)
               }}
               title="新建对话"
               className="flex items-center justify-center w-7 h-7 rounded-lg text-[#9a9ab0] hover:text-[#6c5ce7] hover:bg-[#f0f0f5] transition-all ml-2"
@@ -330,6 +414,7 @@ export default function App() {
                   filledPrompt={filledPrompt} workspace={workspace}
                   onWorkspaceChange={setWorkspace}
                   autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
+                  onNavigateToSession={handleNavigateToSession}
                 />
               </div>
               <BottomToolbar

@@ -145,7 +145,7 @@ export class ChatService extends EventEmitter {
     try {
       const stream = client.messages.stream({
         model: config.model,
-        max_tokens: 16384,
+        max_tokens: 65536,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       })

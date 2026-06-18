@@ -21,7 +21,9 @@ interface ChatStoreState {
   addMessage: (convId: string, msg: ChatMessage) => void
   updateLastMessage: (convId: string, content: string, streaming?: boolean) => void
   setStreaming: (s: boolean) => void
+  deleteMessages: (convId: string, messageIds: string[]) => void
   clearConversation: (convId: string) => void
+  getConversation: (convId: string) => Conversation | null
   setActiveConversation: (id: string | null) => void
   getConversationTitle: (convId: string) => string
   getAllConversations: () => Conversation[]
@@ -85,6 +87,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   setStreaming: (s) => set({ streaming: s }),
 
+  deleteMessages: (convId, messageIds) => {
+    set((s) => {
+      const conv = s.conversations[convId]
+      if (!conv) return s
+      const idSet = new Set(messageIds)
+      const updated = conv.messages.filter(m => !idSet.has(m.id))
+      return {
+        conversations: { ...s.conversations, [convId]: { ...conv, messages: updated, updatedAt: Date.now() } },
+      }
+    })
+  },
+
   clearConversation: (convId) => {
     set((s) => {
       const conv = s.conversations[convId]
@@ -94,6 +108,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       }
     })
   },
+
+  getConversation: (convId) => get().conversations[convId] || null,
 
   setActiveConversation: (id) => set({ activeConversationId: id }),
 

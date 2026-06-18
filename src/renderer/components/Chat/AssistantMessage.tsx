@@ -16,6 +16,11 @@ interface CurrentModelInfo {
 
 interface AssistantMessageProps {
   message: ChatMessage
+  onCopy?: () => void
+  onToggleSelect?: () => void
+  isSelected?: boolean
+  showSelect?: boolean
+  onDelete?: () => void
 }
 
 function ProviderAvatar({ provider }: { provider: string }) {
@@ -32,10 +37,20 @@ function ProviderAvatar({ provider }: { provider: string }) {
   )
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps) {
+export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected = false, showSelect = false, onDelete }: AssistantMessageProps) {
   const hasContent = message.content.length > 0
   const [showTools, setShowTools] = useState(false)
+  const [showActions, setShowActions] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [modelInfo, setModelInfo] = useState<CurrentModelInfo | null>(null)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+    onCopy?.()
+  }
 
   useEffect(() => {
     window.electron.invoke('model:current').then((d: unknown) => {
@@ -165,23 +180,58 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
   )
 
   return (
-    <div className="mb-4 px-4">
-      <div className="max-w-[85%]">
-        {/* Avatar — shows actual model provider + name */}
-        <div className="flex items-center gap-2 mb-1.5">
-          <div className="w-5 h-5 rounded-full bg-[#f0f0f5] flex items-center justify-center flex-shrink-0">
-            {modelInfo ? <ProviderAvatar provider={modelInfo.provider} /> : <IconDeepSeek />}
-          </div>
-          <span className="text-[10px] text-[#9a9ab0] font-medium">
-            {modelInfo?.display || 'AI 助手'}
-          </span>
-          {message.streaming && (
-            <span className="w-1.5 h-1.5 rounded-full bg-[#6c5ce7] animate-pulse-dot" />
+    <div className="mb-4 px-4 group"
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
+    >
+      <div className="flex items-start gap-1">
+        {/* Action buttons — left side of AI message */}
+        <div className={`flex flex-col items-center gap-0.5 pt-6 transition-all duration-150 ${showActions || showSelect ? 'opacity-100' : 'opacity-0'}`}>
+          {showSelect && (
+            <button onClick={onToggleSelect}
+              className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${isSelected ? 'bg-[#6c5ce7] text-white' : 'bg-white border border-[#e5e6eb] text-transparent hover:border-[#6c5ce7]'}`}
+              title={isSelected ? '取消选择' : '选择'}
+            >
+              {isSelected && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+            </button>
+          )}
+          <button onClick={handleCopy}
+            className="w-5 h-5 rounded-md bg-white border border-[#e5e6eb] flex items-center justify-center hover:border-[#6c5ce7] hover:text-[#6c5ce7] transition-colors"
+            title={copied ? '已复制' : '复制消息'}
+          >
+            {copied ? (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6c5ce7" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            )}
+          </button>
+          {onDelete && (
+            <button onClick={onDelete}
+              className="w-5 h-5 rounded-md bg-white border border-[#e5e6eb] flex items-center justify-center hover:border-[#e17055] hover:text-[#e17055] transition-colors"
+              title="删除消息"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </button>
           )}
         </div>
 
-        {/* Bubble */}
-        <div className="bg-white border border-[#e5e6eb] rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+        {/* Message body */}
+        <div className="max-w-[85%]">
+          {/* Avatar — shows actual model provider + name */}
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-5 h-5 rounded-full bg-[#f0f0f5] flex items-center justify-center flex-shrink-0">
+              {modelInfo ? <ProviderAvatar provider={modelInfo.provider} /> : <IconDeepSeek />}
+            </div>
+            <span className="text-[10px] text-[#9a9ab0] font-medium">
+              {modelInfo?.display || 'AI 助手'}
+            </span>
+            {message.streaming && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#6c5ce7] animate-pulse-dot" />
+            )}
+          </div>
+
+          {/* Bubble */}
+          <div className={`bg-white border rounded-2xl rounded-bl-md px-4 py-3 shadow-sm ${isSelected ? 'ring-2 ring-[#6c5ce7] ring-offset-1 border-[#6c5ce7]' : 'border-[#e5e6eb]'}`}>
           {hasContent ? (
             <div className="text-sm text-[#1a1a2e] markdown-body">
               {/* Clean response text (tool calls removed) */}
@@ -243,6 +293,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
           )}
         </div>
       </div>
+    </div>
     </div>
   )
 }

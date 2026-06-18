@@ -263,6 +263,99 @@ export function IconAnthropic(props: SVGProps<SVGSVGElement>) {
 
 // ── Mascot ──
 
+// ── Thinking/Loading Animations (SVG only, no emoji) ──
+
+export function ThinkingDots(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="48" height="16" viewBox="0 0 48 16" fill="none" {...props}>
+      <style>{`
+        @keyframes dotBounce {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-8px); }
+        }
+        .dot1 { animation: dotBounce 1.4s ease-in-out infinite; }
+        .dot2 { animation: dotBounce 1.4s ease-in-out 0.2s infinite; }
+        .dot3 { animation: dotBounce 1.4s ease-in-out 0.4s infinite; }
+      `}</style>
+      <circle className="dot1" cx="8" cy="12" r="4" fill="#6c5ce7" opacity="0.9" />
+      <circle className="dot2" cx="24" cy="12" r="4" fill="#6c5ce7" opacity="0.7" />
+      <circle className="dot3" cx="40" cy="12" r="4" fill="#6c5ce7" opacity="0.5" />
+    </svg>
+  )
+}
+
+export function BrainWave(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="64" height="48" viewBox="0 0 64 48" fill="none" {...props}>
+      <style>{`
+        @keyframes waveFlow {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes pulseGlow {
+          0%, 100% { opacity: 0.3; r: 8; }
+          50% { opacity: 0.8; r: 10; }
+        }
+        .wave1 { animation: waveFlow 2.5s ease-in-out infinite; }
+        .wave2 { animation: waveFlow 3s ease-in-out 0.5s infinite; }
+        .glow1 { animation: pulseGlow 2s ease-in-out infinite; }
+        .glow2 { animation: pulseGlow 2s ease-in-out 0.7s infinite; }
+        .glow3 { animation: pulseGlow 2s ease-in-out 1.4s infinite; }
+      `}</style>
+      {/* Brain outline */}
+      <path d="M32 6c-6 0-10 3-12 7-1 2-1 4 0 6 1 3 4 5 7 5 2 0 4-1 5-3 1 2 3 3 5 3 3 0 6-2 7-5 1-2 1-4 0-6-2-4-6-7-12-7z" stroke="#6c5ce7" strokeWidth="1.5" fill="none" opacity="0.3" />
+      <path d="M20 22c-2 2-4 4-4 6 0 3 2 5 4 5 2 0 3-2 3-4" stroke="#6c5ce7" strokeWidth="1.5" fill="none" opacity="0.3" />
+      <path d="M44 22c2 2 4 4 4 6 0 3-2 5-4 5-2 0-3-2-3-4" stroke="#6c5ce7" strokeWidth="1.5" fill="none" opacity="0.3" />
+      {/* Neural waves */}
+      <path className="wave1" d="M10 30 Q18 24 26 30 Q34 36 42 30 Q50 24 58 30" stroke="#6c5ce7" strokeWidth="1.8" fill="none" strokeLinecap="round" opacity="0.6" />
+      <path className="wave2" d="M6 36 Q16 28 26 36 Q36 44 46 36 Q56 28 62 36" stroke="#a29bfe" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.5" />
+      {/* Glowing nodes */}
+      <circle className="glow1" cx="22" cy="30" r="3" fill="#6c5ce7" />
+      <circle className="glow2" cx="34" cy="30" r="3" fill="#a29bfe" />
+      <circle className="glow3" cx="46" cy="30" r="3" fill="#6c5ce7" />
+    </svg>
+  )
+}
+
+export function GearSpin(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" {...props}>
+      <style>{`
+        @keyframes gearRotate {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes gearRotateReverse {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(-360deg); }
+        }
+        .gear1 { animation: gearRotate 4s linear infinite; transform-origin: 18px 18px; }
+        .gear2 { animation: gearRotateReverse 3s linear infinite; transform-origin: 32px 30px; }
+      `}</style>
+      {/* Gear 1 */}
+      <g className="gear1">
+        <circle cx="18" cy="18" r="8" stroke="#a29bfe" strokeWidth="2" fill="none" opacity="0.5" />
+        <circle cx="18" cy="18" r="3" fill="#a29bfe" opacity="0.4" />
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => (
+          <line key={i} x1="18" y1="8" x2="18" y2="10"
+            stroke="#a29bfe" strokeWidth="2.5" strokeLinecap="round" opacity="0.6"
+            transform={`rotate(${deg} 18 18)`} />
+        ))}
+      </g>
+      {/* Gear 2 (smaller, meshed) */}
+      <g className="gear2">
+        <circle cx="32" cy="30" r="5.5" stroke="#6c5ce7" strokeWidth="1.6" fill="none" opacity="0.5" />
+        <circle cx="32" cy="30" r="2" fill="#6c5ce7" opacity="0.4" />
+        {[0, 60, 120, 180, 240, 300].map((deg, i) => (
+          <line key={i} x1="32" y1="23" x2="32" y2="24.5"
+            stroke="#6c5ce7" strokeWidth="2" strokeLinecap="round" opacity="0.6"
+            transform={`rotate(${deg} 32 30)`} />
+        ))}
+      </g>
+    </svg>
+  )
+}
+
 export function Mascot(props: SVGProps<SVGSVGElement>) {
   return (
     <svg width="48" height="48" viewBox="0 0 48 48" fill="none" {...props}>

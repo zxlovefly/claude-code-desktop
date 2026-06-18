@@ -1,14 +1,19 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import type { ChatMessage } from './types'
+import { ConfirmDialog } from '../ConfirmDialog'
 
 interface MessageListProps {
   messages: ChatMessage[]
+  onDeleteMessages?: (ids: string[]) => void
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, onDeleteMessages }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState<{ ids: string[]; single: boolean } | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -20,6 +25,37 @@ export function MessageList({ messages }: MessageListProps) {
       bottomRef.current?.scrollIntoView({ behavior: 'auto' })
     }
   }, [messages.map((m) => m.content).join('')])
+
+  // Clear selection when messages change (new conversation)
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setSelectMode(false)
+  }, [messages.length === 0])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+  }, [])
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return
+    setConfirmDelete({ ids: Array.from(selectedIds), single: false })
+  }
+
+  const handleDeleteSingle = (id: string) => {
+    setConfirmDelete({ ids: [id], single: true })
+  }
+
+  const executeDelete = () => {
+    if (!confirmDelete) return
+    onDeleteMessages?.(confirmDelete.ids)
+    setSelectedIds(new Set())
+    setSelectMode(false)
+    setConfirmDelete(null)
+  }
 
   if (messages.length === 0) {
     return (
@@ -40,15 +76,67 @@ export function MessageList({ messages }: MessageListProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar py-4">
-      {messages.map((msg) =>
-        msg.role === 'user' ? (
-          <UserMessage key={msg.id} content={msg.content} />
-        ) : (
-          <AssistantMessage key={msg.id} message={msg} />
-        )
-      )}
-      <div ref={bottomRef} />
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Selection toolbar */}
+      <div className="flex items-center justify-between px-4 py-1 bg-white/80 border-b border-[#e5e6eb]">
+        <button
+          onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
+          className={`text-[10px] font-medium transition-colors ${selectMode ? 'text-[#6c5ce7]' : 'text-[#9a9ab0] hover:text-[#4a4a6a]'}`}
+        >
+          {selectMode ? '退出选择' : '选择消息'}
+        </button>
+        {selectMode && (
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-[#9a9ab0]">已选 {selectedIds.size} 条</span>
+            <button
+              onClick={handleDeleteSelected}
+              disabled={selectedIds.size === 0}
+              className={`text-[10px] font-medium px-2 py-0.5 rounded transition-colors ${selectedIds.size > 0 ? 'text-[#e17055] hover:bg-[#e17055]/10' : 'text-[#c0c0d0] cursor-not-allowed'}`}
+            >
+              删除选中
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar py-4">
+        {messages.map((msg) =>
+          msg.role === 'user' ? (
+            <UserMessage
+              key={msg.id}
+              content={msg.content}
+              showSelect={selectMode}
+              isSelected={selectedIds.has(msg.id)}
+              onToggleSelect={() => toggleSelect(msg.id)}
+              onDelete={() => handleDeleteSingle(msg.id)}
+            />
+          ) : (
+            <AssistantMessage
+              key={msg.id}
+              message={msg}
+              showSelect={selectMode}
+              isSelected={selectedIds.has(msg.id)}
+              onToggleSelect={() => toggleSelect(msg.id)}
+              onDelete={() => handleDeleteSingle(msg.id)}
+            />
+          )
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="确认删除"
+        message={confirmDelete?.single
+          ? '确定要删除这条消息吗？此操作不可撤销。'
+          : `确定要删除选中的 ${confirmDelete?.ids.length} 条消息吗？此操作不可撤销。`}
+        confirmLabel="删除"
+        cancelLabel="取消"
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }

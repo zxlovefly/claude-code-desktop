@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, dialog } from 'electron'
+import { ipcMain, BrowserWindow, app, dialog, shell } from 'electron'
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from 'fs'
 import { join, extname } from 'path'
 import { homedir } from 'os'
@@ -223,6 +223,64 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  // AI polish description (one-shot, returns polished text synchronously)
+  ipcMain.handle('ai:polish-description', async (_event, text: string) => {
+    const sessionId = 'polish-' + Date.now()
+    return new Promise<string>((resolve, reject) => {
+      let result = ''
+      const onDelta = (sId: string, delta: string) => {
+        if (sId === sessionId) result += delta
+      }
+      const onDone = (sId: string) => {
+        if (sId === sessionId) {
+          cleanup()
+          resolve(result || text)
+        }
+      }
+      const onError = (sId: string, msg: string) => {
+        if (sId === sessionId) {
+          cleanup()
+          reject(new Error(msg))
+        }
+      }
+      const onCancelled = (sId: string) => {
+        if (sId === sessionId) {
+          cleanup()
+          resolve(result || text)
+        }
+      }
+      const cleanup = () => {
+        chat.removeListener('delta', onDelta)
+        chat.removeListener('done', onDone)
+        chat.removeListener('error', onError)
+        chat.removeListener('cancelled', onCancelled)
+      }
+
+      chat.on('delta', onDelta)
+      chat.on('done', onDone)
+      chat.on('error', onError)
+      chat.on('cancelled', onCancelled)
+
+      const systemPrompt = `你是一位产品需求描述润色助手。你的任务是对用户输入的需求描述做**最小限度**的优化：
+
+【核心原则】
+1. **保留用户原话**：尽量保留用户原本的用词、语气和表达方式，不要改写为你认为"更专业"的说法
+2. **只修明显问题**：仅修正明显的错别字、语法错误、语句不通顺的地方
+3. **保留具体细节**：用户提到的具体数字、颜色、布局、功能名称等细节一个字都不要改
+4. **不添加抽象包装**：不要把"登录页面"改成"用户认证入口模块"，不要把"红色按钮"改成"具有视觉冲击力的行动号召元素"
+5. **简洁优先**：如果用户原话已经很清楚了，就不要改动；大白话比虚浮的专业术语更好
+
+【禁止行为】
+❌ 不要添加用户没说过的功能或需求
+❌ 不要用抽象术语替换具体描述
+❌ 不要为追求"专业感"而牺牲清晰度
+❌ 不要添加营销话术或包装性语言
+
+直接输出润色后的文本，不要加任何前缀、后缀或解释。如果原文已经很好，直接输出原文。`
+      chat.generate(sessionId, systemPrompt, `请优化以下产品需求描述，使其更加清晰、具体和专业：\n\n${text}`)
+    })
+  })
+
   // Forward Chat events to renderer
   chat.on('delta', (sessionId: string, text: string) => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -346,6 +404,170 @@ export function registerIpcHandlers(): void {
     return result.filePaths[0]
   })
 
+  // ── Export: DOCX / PDF ──
+
+  ipcMain.handle('export:docx', async (_event, markdown: string, filename?: string) => {
+    try {
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle } = await import('docx')
+
+      const lines = markdown.split('\n')
+      const children: any[] = []
+
+      let i = 0
+      while (i < lines.length) {
+        const line = lines[i]
+
+        // Headers
+        const h1 = line.match(/^# (.+)$/)
+        const h2 = line.match(/^## (.+)$/)
+        const h3 = line.match(/^### (.+)$/)
+        if (h1) {
+          children.push(new Paragraph({ text: h1[1], heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }))
+          i++; continue
+        }
+        if (h2) {
+          children.push(new Paragraph({ text: h2[1], heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 120 } }))
+          i++; continue
+        }
+        if (h3) {
+          children.push(new Paragraph({ text: h3[1], heading: HeadingLevel.HEADING_3, spacing: { before: 180, after: 100 } }))
+          i++; continue
+        }
+
+        // Horizontal rules
+        if (line.match(/^---$/)) {
+          children.push(new Paragraph({ children: [new TextRun({ text: '─'.repeat(60), color: '999999', size: 16 })], spacing: { before: 100, after: 100 } }))
+          i++; continue
+        }
+
+        // Bold text in paragraphs
+        if (line.trim()) {
+          const parts = line.split(/(\*\*[^*]+\*\*)/g)
+          const runs = parts.map(part => {
+            const boldMatch = part.match(/^\*\*(.+)\*\*$/)
+            if (boldMatch) return new TextRun({ text: boldMatch[1], bold: true })
+            return new TextRun({ text: part })
+          })
+          children.push(new Paragraph({ children: runs, spacing: { before: 60, after: 60 } }))
+        } else {
+          children.push(new Paragraph({ spacing: { before: 60, after: 60 } }))
+        }
+        i++
+      }
+
+      const doc = new Document({
+        styles: {
+          default: {
+            document: {
+              run: { font: 'Microsoft YaHei', size: 22 },
+            },
+          },
+        },
+        sections: [{ children }],
+      })
+
+      const buffer = await Packer.toBuffer(doc)
+      const exportDir = join(app.getPath('temp'), 'zxcode-exports')
+      if (!existsSync(exportDir)) mkdirSync(exportDir, { recursive: true })
+      const outName = filename || `export-${Date.now()}.docx`
+      const outPath = join(exportDir, outName)
+      writeFileSync(outPath, buffer)
+      return { success: true, path: outPath }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('export:pdf', async (_event, markdown: string, filename?: string) => {
+    try {
+      // Render markdown to basic HTML
+      const htmlContent = renderMarkdownToHtml(markdown)
+      const exportDir = join(app.getPath('temp'), 'zxcode-exports')
+      if (!existsSync(exportDir)) mkdirSync(exportDir, { recursive: true })
+      const outName = filename || `export-${Date.now()}.pdf`
+      const outPath = join(exportDir, outName)
+
+      // Create hidden BrowserWindow for PDF generation
+      const pdfWin = new BrowserWindow({
+        width: 800, height: 600, show: false,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      })
+      await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`)
+      await new Promise(r => setTimeout(r, 500)) // wait for render
+      const data = await pdfWin.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true })
+      writeFileSync(outPath, data)
+      pdfWin.close()
+      return { success: true, path: outPath }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('export:open-html', async (_event, html: string) => {
+    try {
+      const exportDir = join(app.getPath('temp'), 'zxcode-exports')
+      if (!existsSync(exportDir)) mkdirSync(exportDir, { recursive: true })
+      const outPath = join(exportDir, `prototype-${Date.now()}.html`)
+      writeFileSync(outPath, html, 'utf-8')
+      await shell.openPath(outPath)
+      return { success: true, path: outPath }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('file:open', async (_event, filePath: string) => {
+    try {
+      await shell.openPath(filePath)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // ── Skill Loading ──
+  ipcMain.handle('skill:load-all', async () => {
+    try {
+      const skillsDir = join(homedir(), '.claude', 'skills')
+      if (!existsSync(skillsDir)) return { success: true, skills: [] }
+
+      const entries = readdirSync(skillsDir, { withFileTypes: true })
+      const skills: Array<{ name: string; description: string; content: string; path: string }> = []
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const skillMdPath = join(skillsDir, entry.name, 'SKILL.md')
+        if (!existsSync(skillMdPath)) continue
+
+        try {
+          const raw = readFileSync(skillMdPath, 'utf-8')
+          // Parse YAML frontmatter
+          const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
+          if (!fmMatch) continue
+
+          const frontmatter = fmMatch[1]
+          const body = fmMatch[2].trim()
+
+          const nameMatch = frontmatter.match(/^name:\s*(.+)$/m)
+          const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
+
+          skills.push({
+            name: nameMatch?.[1]?.trim() || entry.name,
+            description: descMatch?.[1]?.trim() || '',
+            content: body,
+            path: skillMdPath,
+          })
+        } catch {
+          // Skip unparseable skills
+        }
+      }
+
+      return { success: true, skills }
+    } catch (err: any) {
+      return { success: false, error: err.message, skills: [] }
+    }
+  })
+
   // ── File Upload ──
 
 // ── Helper: Extract text from PPTX (ZIP-based) ──
@@ -369,6 +591,30 @@ async function extractPptxText(filePath: string): Promise<string> {
     if (texts.length > 0) slides.push(`--- Slide ${slides.length + 1} ---\n${texts.join('\n')}`)
   }
   return slides.length > 0 ? slides.join('\n\n') : '(PPTX 文件无可提取的文本内容)'
+}
+
+// ── Helper: Render markdown to styled HTML (for PDF export) ──
+function renderMarkdownToHtml(markdown: string): string {
+  const body = markdown
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.+)$/gm, '<h3 style="margin:16px 0 8px;font-size:16px;color:#1a1a2e">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="margin:20px 0 10px;font-size:20px;color:#1a1a2e;border-bottom:1px solid #e5e6eb;padding-bottom:4px">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 style="margin:24px 0 12px;font-size:24px;color:#1a1a2e">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code style="background:#f0f0f5;padding:1px 4px;border-radius:3px;font-family:monospace;font-size:13px;color:#6c5ce7">$1</code>')
+    .replace(/^---$/gm, '<hr style="margin:12px 0;border:none;border-top:1px solid #e5e6eb">')
+    .replace(/^- (.+)$/gm, '<li style="margin-left:20px;color:#4a4a6a">• $1</li>')
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>')
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 14px; color: #2d2d3f; line-height: 1.8; max-width: 800px; margin: 40px auto; padding: 20px; }
+    h1,h2,h3 { font-weight: 700; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    td,th { border: 1px solid #e5e6eb; padding: 6px 10px; text-align: left; font-size: 13px; }
+    th { background: #f5f6f8; font-weight: 600; }
+  </style></head><body>${body}</body></html>`
 }
 
   ipcMain.handle('dialog:open-file', async () => {

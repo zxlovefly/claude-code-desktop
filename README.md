@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/🎨-原型设计-orange" />
   <img src="https://img.shields.io/badge/🤖-自动化调度-purple" />
   <img src="https://img.shields.io/badge/📊-流量监控仪表盘-teal" />
+  <img src="https://img.shields.io/badge/🧪-项目测试-orange" />
   <img src="https://img.shields.io/badge/💬-AI Chat 对话-pink" />
   <img src="https://img.shields.io/badge/🤖-微信机器人-green" />
   <img src="https://img.shields.io/badge/👁️-本地多模态视觉-red" />
@@ -51,6 +52,7 @@
 | **PRD 撰写** | AI 辅助生成可开发级产品需求文档，含业务规则、交互逻辑、验收标准 |
 | **竞品分析** | 多维度竞品分析报告，支持 SWOT、波特五力、用户体验地图等框架 |
 | **原型设计** | 一句话需求生成 HTML 交互原型，内置 **UI-UX-Pro-Max 设计系统**（20+ 设计规则：无障碍、响应式、动画、字体色板、表单反馈等），自动优化 UI |
+| **项目测试** | AI 自动测试与迭代改进完整项目，支持所有语言（Web/Python/Node/Java/Go 等），自动备份/回滚，完整源码浏览 + 语法高亮 + 修改前后对比，内置 HTTP 服务器联动预览整个项目效果 |
 | **提示词库** | 精选 12+ 高频场景 Prompt 模板（PRD/竞品/用户故事/技术评估等），支持自定义 |
 | **技能管理** | 浏览和管理 AI 技能插件 |
 
@@ -393,6 +395,7 @@ src/
 │   │   │   ├── PrototypePage.tsx      # 原型设计
 │   │   │   ├── SkillsPage.tsx         # 技能管理
 │   │   │   ├── PromptLibraryPage.tsx  # 提示词库
+│   │   │   ├── ProjectTestPage.tsx   # 项目测试（AI 自动测试 + 迭代改进 + 源码预览 + 项目联动预览）
 │   │   │   ├── WechatBotPage.tsx      # 微信机器人管理页
 │   │   │   └── ToolPage.tsx           # 工具页通用布局
 │   │   ├── StatusBar/                 # 底部状态栏
@@ -486,6 +489,51 @@ npm run package
 ---
 
 ## 📋 更新日志
+
+### v1.0.2 (2026-06-19) — 项目测试页面全面重做 & 预览系统增强
+
+**项目测试页 (ProjectTestPage) 全面重做：**
+- ✨ **源码/预览双 Tab 系统**：匹配原型设计页面 UX，源码 Tab 展示所有修改文件的完整源代码 + 语法高亮，预览 Tab 通过本地 HTTP 服务器联动预览整个项目
+- ✨ **完整源码浏览器**：所有被 AI 修改的文件（JS/TS/Python/HTML/CSS/C/Java/Go 等）以标签页形式展示完整源码，支持文件切换、语法高亮（关键字/字符串/注释/数字/HTML 标签）、一键复制
+- ✨ **修改前/后对比**：每个文件支持"修改前"→"修改后"单文件切换和左右并排 Diff 视图，红色删除行 + 绿色新增行
+- ✨ **整个项目联动预览**：内置本地 HTTP 静态文件服务器（自动分配端口），预览 Tab 通过 `http://127.0.0.1:<port>/index.html` 加载项目，CSS/JS/图片/字体等全部依赖正确解析，不再只是单个 HTML 的 srcDoc 预览
+- ✨ **项目文件浏览器**：预览 Tab 下拉菜单列出所有项目 HTML 文件，index.html 优先，支持切换预览不同页面
+- ✨ **自动项目类型检测**：选择项目目录后自动扫描（深度 3），检测 Web/Python/Node/Java/Go/Rust/.NET 等项目类型
+- ✨ **自动技能加载**：根据项目类型自动加载对应技能（Web → design-an-interface/prototype/pmaster，Python/Node → diagnose/improve-codebase-architecture），始终加载 qa/review
+- ✨ **思考动画同步**：生成过程中使用 ThinkingDots/BrainWave/GearSpin SVG 动画（与 ToolPageLayout 一致），4 秒轮播
+- ✨ **工具调用记录**：无文件修改时展示完整 AI 分析输出 + 工具调用统计（读取 X 个文件、列出 Y 个目录、执行 Z 条命令）
+- ✨ **系统提示词强化**：新增"⚠️ CRITICAL: You MUST Modify Files"板块，强制 AI 使用 write_file 实际修改代码，并要求每处修改添加行内注释标注
+
+**新增 IPC 接口：**
+- ✨ `project:scan` — 项目目录扫描，检测项目类型和文件扩展名
+- ✨ `project:read-file` — 读取项目中的文本文件内容
+- ✨ `project:list-html-files` — 扫描项目目录列出所有 HTML 文件（按路径排序，index.html 优先）
+- ✨ `project:start-preview-server` — 启动本地 HTTP 静态文件服务器（MIME 类型完整、目录浏览、路径遍历防护）
+- ✨ `project:stop-preview-server` — 停止预览服务器
+
+**AI 润色增强：**
+- ✨ **技能强制注入**：润色时根据项目类型自动加载对应技能内容到 prompt 中（Web 加载 design-an-interface/prototype/pmaster，Python/Node 加载 diagnose/improve-codebase-architecture）
+- ✨ **System Prompt 升级**：从保守修改变为专业增强模式（丰富细节、结构化表达、量化目标、补充测试维度、考虑边界情况）
+- ✨ **PolishButton 新增 context 属性**：支持传递 pageType 和 projectType 上下文
+
+**Bug 修复：**
+- 🐛 修复 `Cannot access 'formatTime' before initialization` TDZ 错误（改为模块级 function 声明）
+- 🐛 修复 `Cannot access 'writtenFiles' before initialization` TDZ 错误（派生变量移至 effect 之前声明）
+- 🐛 修复 `Cannot access 'hasOutput' before initialization` TDZ 错误（预览服务器 effect 移至 hasOutput 之后）
+- 🐛 修复 chat:tool-result IPC 参数不匹配导致工具结果无法填充（5 参数 → 2 参数解构修正）
+- 🐛 修复系统提示词列出不存在的工具名称（edit_file/search_files 已移除）
+- 🐛 修复 CSP `default-src 'self'` 阻止 iframe 加载 `http://127.0.0.1:*` 预览内容（添加 `frame-src 'self' http://127.0.0.1:*`）
+- 🐛 修复 iframe sandbox `allow-same-origin` 与跨域 http:// 加载冲突导致预览卡死
+- 🐛 修复预览服务器反复停启导致第二次点击预览卡死（effect 拆分为目录变化重启 + 输出就绪启动）
+
+**技术改进：**
+- 🔧 `parseToolInput` 函数解析 write_file/read_file/execute_command/list_directory 四种工具调用
+- 🔧 `highlightCode` 函数支持多语言语法高亮（JS/TS/Python/HTML/CSS/C/Java/Go/Rust 关键字 + 字符串 + 注释 + 数字）
+- 🔧 `computeDiff` 简单行 diff 算法（公共前缀/后缀裁剪）
+- 🔧 `BeforeAfterPreview` 组件支持修改前/后 iframe 切换预览
+- 🔧 `DiffView` 组件支持左右并排 diff 视图（可折叠）
+- 🔧 预览服务器支持 40+ MIME 类型、目录浏览、路径遍历防护、Access-Control-Allow-Origin
+- 🔧 构建命令修正：`vite build` → `electron-vite build`
 
 ### v1.0.1 (2026-06-19) — 工具页增强 & Bug 修复
 

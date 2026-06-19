@@ -782,9 +782,10 @@ interface PolishButtonProps {
   text: string
   onAccept: (polished: string) => void
   disabled?: boolean
+  context?: { pageType?: string; projectType?: string }
 }
 
-export function PolishButton({ text, onAccept, disabled }: PolishButtonProps) {
+export function PolishButton({ text, onAccept, disabled, context }: PolishButtonProps) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -797,9 +798,15 @@ export function PolishButton({ text, onAccept, disabled }: PolishButtonProps) {
     setResult(null)
     setCollapsed(false)
     try {
-      const polished = await window.electron.invoke('ai:polish-description', text) as string
-      if (polished && polished !== text) {
-        setResult(polished)
+      const polished = await window.electron.invoke('ai:polish-description', text, context) as string
+      const trimmed = (polished || '').trim()
+      if (trimmed && trimmed !== text.trim()) {
+        setResult(trimmed)
+      } else if (trimmed === text.trim()) {
+        // Model decided the text is already good — not an error
+        setError('')
+        setResult(null)
+        setCollapsed(true)
       } else {
         setError('润色未返回有效结果')
       }

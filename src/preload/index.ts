@@ -16,18 +16,21 @@ const allowedInvokeChannels = [
   'keys:save',
   'skill:load-all',
   'dialog:open-file', 'dialog:open-directory',
+  'project:backup', 'project:rollback', 'project:list-backups', 'project:scan', 'project:read-file', 'project:list-html-files', 'project:start-preview-server', 'project:stop-preview-server',
   'wechat-bot:status', 'wechat-bot:connect', 'wechat-bot:disconnect',
   'wechat-bot:settings', 'wechat-bot:update-settings',
   'wechat-bot:personas', 'wechat-bot:get-user-persona',
   'wechat-bot:set-user-persona', 'wechat-bot:all-personas',
   'wechat-bot:default-persona', 'wechat-bot:set-default-persona',
+  'btw:cancel', 'btw:list', 'btw:get-output',
 ]
 const allowedReceiveChannels = [
   'terminal:data', 'terminal:exit',
   'proxy:stats', 'scheduler:executed',
-  'chat:delta', 'chat:tool-result', 'chat:done', 'chat:cancelled', 'chat:error',
+  'chat:delta', 'chat:tool-result', 'chat:tool-start', 'chat:message-start', 'chat:done', 'chat:cancelled', 'chat:error',
   'wechat-bot:status-changed', 'wechat-bot:qrcode',
   'wechat-bot:message-received', 'wechat-bot:message-sent',
+  'btw:started', 'btw:spawned', 'btw:delta', 'btw:tool-start', 'btw:done', 'btw:cancelled', 'btw:error', 'btw:result',
 ]
 
 export interface ElectronAPI {

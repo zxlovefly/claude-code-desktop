@@ -1,9 +1,11 @@
 import { ipcMain, BrowserWindow, app, dialog, shell } from 'electron'
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from 'fs'
-import { join, extname } from 'path'
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync, createReadStream } from 'fs'
+import { join, extname, basename, relative } from 'path'
+import { spawn } from 'child_process'
 import { homedir } from 'os'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as http from 'http'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
@@ -143,6 +145,11 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('app:cwd', () => {
+    // Default workspace: user's Desktop directory
+    try {
+      const desktopPath = app.getPath('desktop')
+      if (desktopPath && existsSync(desktopPath)) return desktopPath
+    } catch {}
     return process.cwd()
   })
 
@@ -192,8 +199,8 @@ export function registerIpcHandlers(): void {
 
   // ── Chat IPC ──
 
-  ipcMain.handle('chat:create-session', (_event, sessionId: string) => {
-    chat.createSession(sessionId)
+  ipcMain.handle('chat:create-session', (_event, sessionId: string, systemPrompt?: string) => {
+    chat.createSession(sessionId, systemPrompt)
     return true
   })
 
@@ -224,8 +231,38 @@ export function registerIpcHandlers(): void {
   })
 
   // AI polish description (one-shot, returns polished text synchronously)
-  ipcMain.handle('ai:polish-description', async (_event, text: string) => {
+  ipcMain.handle('ai:polish-description', async (_event, text: string, context?: { pageType?: string; projectType?: string }) => {
     const sessionId = 'polish-' + Date.now()
+
+    // Load relevant skills based on context
+    let skillContent = ''
+    try {
+      const skillsDir = join(homedir(), '.claude', 'skills')
+      if (existsSync(skillsDir)) {
+        const skillNames: string[] = ['qa', 'review'] // always load
+        const pt = context?.projectType || ''
+        if (pt === 'web') skillNames.push('design-an-interface', 'prototype', 'pmaster')
+        else if (pt === 'python') skillNames.push('diagnose', 'improve-codebase-architecture')
+        else if (pt === 'node') skillNames.push('improve-codebase-architecture', 'diagnose')
+        else if (pt === 'java' || pt === 'go' || pt === 'rust' || pt === 'dotnet') skillNames.push('improve-codebase-architecture', 'diagnose')
+        else skillNames.push('pmaster', 'diagnose')
+
+        for (const sn of skillNames) {
+          const skillMdPath = join(skillsDir, sn, 'SKILL.md')
+          if (!existsSync(skillMdPath)) continue
+          try {
+            const raw = readFileSync(skillMdPath, 'utf-8')
+            const fmMatch = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/)
+            if (fmMatch) skillContent += `\n\n### ${sn}\n${fmMatch[1].trim().slice(0, 2000)}`
+          } catch {}
+        }
+      }
+    } catch {}
+
+    const skillBlock = skillContent
+      ? `\n\n---\n\n【以下为项目相关技能指导，请在润色时参考这些专业知识来丰富需求描述】\n${skillContent}\n\n---\n\n`
+      : ''
+
     return new Promise<string>((resolve, reject) => {
       let result = ''
       const onDelta = (sId: string, delta: string) => {
@@ -261,23 +298,32 @@ export function registerIpcHandlers(): void {
       chat.on('error', onError)
       chat.on('cancelled', onCancelled)
 
-      const systemPrompt = `你是一位产品需求描述润色助手。你的任务是对用户输入的需求描述做**最小限度**的优化：
+      const systemPrompt = `你是一位资深产品需求和项目管理专家。你的任务是对用户输入的需求描述进行**专业增强和丰富**，利用你的专业知识让需求更加清晰、完整、可执行。
 
 【核心原则】
-1. **保留用户原话**：尽量保留用户原本的用词、语气和表达方式，不要改写为你认为"更专业"的说法
-2. **只修明显问题**：仅修正明显的错别字、语法错误、语句不通顺的地方
-3. **保留具体细节**：用户提到的具体数字、颜色、布局、功能名称等细节一个字都不要改
-4. **不添加抽象包装**：不要把"登录页面"改成"用户认证入口模块"，不要把"红色按钮"改成"具有视觉冲击力的行动号召元素"
-5. **简洁优先**：如果用户原话已经很清楚了，就不要改动；大白话比虚浮的专业术语更好
+1. **丰富细节**：在保留原意的基础上，补充缺失的上下文、边界条件、验收标准等
+2. **结构化表达**：如果原文是零散的要点，将其组织成清晰的列表或分类
+3. **量化目标**：如果需求模糊（如"快一点"），补充可量化的指标建议（如"响应时间<200ms"）
+4. **保留用户原话精髓**：不要替换用户的具体描述为抽象的术语，保持用户的语言风格
+5. **补充测试维度**：为需求添加可验证的测试检查点
+6. **考虑边界情况**：补充用户可能遗漏的边界条件和异常处理
+
+【增强技巧】
+✅ 把"做一个登录页"展开为"登录页面需包含：邮箱/手机号输入框、密码输入框、记住我复选框、忘记密码链接、登录按钮，支持表单验证和错误提示"
+✅ 把"修复bug"细化为"定位并修复XX功能的XX问题，补充单元测试覆盖该场景，确保回归测试通过"
+✅ 为UI需求补充响应式、无障碍、交互反馈等维度
+✅ 为性能需求补充具体的指标和测量方法
+✅ 为功能需求补充用户故事格式（作为XX用户，我希望XX，以便XX）
 
 【禁止行为】
-❌ 不要添加用户没说过的功能或需求
-❌ 不要用抽象术语替换具体描述
-❌ 不要为追求"专业感"而牺牲清晰度
-❌ 不要添加营销话术或包装性语言
+❌ 不要改变用户的核心意图和需求方向
+❌ 不要用抽象营销包装替换具体描述
+❌ 不要添加用户完全没提到的功能模块
+❌ 不要删除用户的原始需求内容
 
-直接输出润色后的文本，不要加任何前缀、后缀或解释。如果原文已经很好，直接输出原文。`
-      chat.generate(sessionId, systemPrompt, `请优化以下产品需求描述，使其更加清晰、具体和专业：\n\n${text}`)
+${skillBlock}
+直接输出润色后的完整需求文本，不要加任何前缀、后缀或解释（如"这是润色后的版本："）。如果原文已经很好，在原文基础上小幅增强即可。`
+      chat.generate(sessionId, systemPrompt, `请对以下需求描述进行专业增强和丰富，使其更加完整、清晰、可执行：\n\n${text}`)
     })
   })
 
@@ -289,6 +335,14 @@ export function registerIpcHandlers(): void {
   chat.on('tool_result', (sessionId: string, toolId: string, name: string, input: unknown, result: string) => {
     const win = BrowserWindow.getAllWindows()[0]
     win?.webContents.send('chat:tool-result', sessionId, { id: toolId, name, input, result })
+  })
+  chat.on('message-start', (sessionId: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('chat:message-start', sessionId)
+  })
+  chat.on('tool-start', (sessionId: string, toolId: string, name: string, input: unknown) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('chat:tool-start', sessionId, toolId, name, input)
   })
   chat.on('done', (sessionId: string) => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -369,6 +423,55 @@ export function registerIpcHandlers(): void {
       personaId,
       persona: getPersona(personaId),
     }
+  })
+
+  // ── BTW (Background Task Worker) IPC ──
+
+  ipcMain.handle('btw:cancel', (_event, btwId: string) => {
+    return chat.cancelBtw(btwId)
+  })
+
+  ipcMain.handle('btw:list', () => {
+    return chat.listBtw()
+  })
+
+  ipcMain.handle('btw:get-output', (_event, btwId: string) => {
+    return chat.getBtwOutput(btwId)
+  })
+
+  // Forward BTW events to renderer
+  chat.on('btw-spawned', (parentSessionId: string, text: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:spawned', parentSessionId, text)
+  })
+  chat.on('btw-started', (btwId: string, task: string, parentSessionId: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:started', btwId, task, parentSessionId)
+  })
+  chat.on('btw-delta', (btwId: string, text: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:delta', btwId, text)
+  })
+  chat.on('btw-tool-start', (btwId: string, toolId: string, name: string, input: unknown) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:tool-start', btwId, toolId, name, input)
+  })
+  chat.on('btw-done', (btwId: string, output: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:done', btwId, output)
+  })
+  chat.on('btw-cancelled', (btwId: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:cancelled', btwId)
+  })
+  chat.on('btw-error', (btwId: string, error: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:error', btwId, error)
+  })
+  // When a BTW finishes, also notify the parent session
+  chat.on('btw-result', (parentSessionId: string, btwId: string, output: string) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.send('btw:result', parentSessionId, btwId, output)
   })
 
   // Forward WeChat bot events to renderer
@@ -741,6 +844,327 @@ function renderMarkdownToHtml(markdown: string): string {
       return { filePath, fileName: filePath.split(/[/\\]/).pop(), content, size: stats.size, isImage }
     } catch (err: any) {
       return { error: `读取失败: ${err.message}`, filePath }
+    }
+  })
+
+  // ── Project Backup / Rollback ──
+
+  ipcMain.handle('project:backup', async (_event, projectDir: string) => {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const backupDir = join(projectDir, '.zxcode-backups')
+      if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true })
+      const backupName = `backup-${timestamp}.zip`
+      const backupPath = join(backupDir, backupName)
+
+      const isWin = process.platform === 'win32'
+      const cmd = isWin
+        ? `powershell -Command "Compress-Archive -Path '${projectDir}\\*' -DestinationPath '${backupPath}' -Force"`
+        : `tar -czf "${backupPath}" -C "${projectDir}" --exclude='.zxcode-backups' .`
+
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, [], { shell: true, stdio: 'pipe', windowsHide: true })
+        let stderr = ''
+        child.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8') })
+        child.on('close', (code) => {
+          if (code === 0) resolve()
+          else reject(new Error(stderr || `Backup command exited with code ${code}`))
+        })
+        child.on('error', reject)
+      })
+
+      return { success: true, backupPath, backupName }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('project:rollback', async (_event, projectDir: string, backupPath: string) => {
+    try {
+      if (!existsSync(backupPath)) {
+        return { success: false, error: `备份文件不存在: ${backupPath}` }
+      }
+
+      const isWin = process.platform === 'win32'
+      // On Windows, extract the zip back to the project directory
+      // First remove existing files (except .zxcode-backups)
+      const cmd = isWin
+        ? `powershell -Command "$ErrorActionPreference='Stop'; Expand-Archive -Path '${backupPath}' -DestinationPath '${projectDir}' -Force"`
+        : `tar -xzf "${backupPath}" -C "${projectDir}"`
+
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, [], { shell: true, stdio: 'pipe', windowsHide: true })
+        let stderr = ''
+        child.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8') })
+        child.on('close', (code) => {
+          if (code === 0) resolve()
+          else reject(new Error(stderr || `Rollback command exited with code ${code}`))
+        })
+        child.on('error', reject)
+      })
+
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('project:list-backups', async (_event, projectDir: string) => {
+    try {
+      const backupDir = join(projectDir, '.zxcode-backups')
+      if (!existsSync(backupDir)) return { success: true, backups: [] }
+
+      const files = readdirSync(backupDir)
+        .filter(f => f.endsWith('.zip') || f.endsWith('.tar.gz'))
+        .map(f => ({
+          name: f,
+          path: join(backupDir, f),
+          createdAt: statSync(join(backupDir, f)).birthtime.toISOString(),
+        }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+      return { success: true, backups: files }
+    } catch (err: any) {
+      return { success: false, error: err.message, backups: [] }
+    }
+  })
+
+  // ── Project: scan directory to detect project type ──
+  ipcMain.handle('project:scan', async (_event, projectDir: string) => {
+    try {
+      if (!existsSync(projectDir)) return { success: false, error: '目录不存在' }
+
+      const extensions = new Set<string>()
+      const files: string[] = []
+      const maxDepth = 3
+
+      function scan(dir: string, depth: number) {
+        if (depth > maxDepth) return
+        try {
+          const entries = readdirSync(dir, { withFileTypes: true })
+          for (const e of entries) {
+            if (e.name.startsWith('.') || e.name === 'node_modules') continue
+            const full = join(dir, e.name)
+            if (e.isDirectory()) {
+              scan(full, depth + 1)
+            } else if (e.isFile()) {
+              files.push(full)
+              const ext = extname(e.name).toLowerCase()
+              if (ext) extensions.add(ext)
+            }
+          }
+        } catch {}
+      }
+      scan(projectDir, 0)
+
+      // Detect project type
+      let projectType = 'generic'
+      const extList = Array.from(extensions)
+      const hasExt = (exts: string[]) => exts.some(e => extList.includes(e))
+
+      if (hasExt(['.html', '.htm', '.css', '.scss', '.less'])) projectType = 'web'
+      if (hasExt(['.tsx', '.jsx', '.vue', '.svelte'])) projectType = 'web'
+      if (hasExt(['.py'])) projectType = 'python'
+      if (hasExt(['.java'])) projectType = 'java'
+      if (hasExt(['.go'])) projectType = 'go'
+      if (hasExt(['.rs'])) projectType = 'rust'
+      if (hasExt(['.cs'])) projectType = 'dotnet'
+      if (hasExt(['.swift'])) projectType = 'swift'
+      if (hasExt(['.kt', '.kts'])) projectType = 'kotlin'
+      if (hasExt(['.rb'])) projectType = 'ruby'
+      if (hasExt(['.php'])) projectType = 'php'
+      if (hasExt(['.ts', '.js']) && !hasExt(['.tsx', '.jsx', '.html', '.css'])) projectType = 'node'
+
+      return { success: true, projectType, extensions: extList, fileCount: files.length }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('project:read-file', async (_event, filePath: string) => {
+    try {
+      if (!existsSync(filePath)) return { success: false, error: '文件不存在' }
+      const content = readFileSync(filePath, 'utf-8')
+      return { success: true, content }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('project:list-html-files', async (_event, projectDir: string) => {
+    try {
+      if (!existsSync(projectDir)) return { success: false, error: '目录不存在', files: [] }
+      const htmlFiles: { path: string; name: string; relativePath: string }[] = []
+      const maxDepth = 4
+      function scan(dir: string, depth: number) {
+        if (depth > maxDepth) return
+        try {
+          const entries = readdirSync(dir, { withFileTypes: true })
+          for (const e of entries) {
+            if (e.name.startsWith('.') || e.name === 'node_modules') continue
+            const full = join(dir, e.name)
+            if (e.isDirectory()) { scan(full, depth + 1) }
+            else if (e.isFile() && /\.html?$/i.test(e.name)) {
+              htmlFiles.push({
+                path: full,
+                name: e.name,
+                relativePath: relative(projectDir, full),
+              })
+            }
+          }
+        } catch {}
+      }
+      scan(projectDir, 0)
+      // Sort: index.html first, then by name
+      htmlFiles.sort((a, b) => {
+        if (a.name.toLowerCase() === 'index.html') return -1
+        if (b.name.toLowerCase() === 'index.html') return 1
+        return a.relativePath.localeCompare(b.relativePath)
+      })
+      return { success: true, files: htmlFiles }
+    } catch (err: any) {
+      return { success: false, error: err.message, files: [] }
+    }
+  })
+
+  // ── Project preview server (serves entire project directory for iframe preview) ──
+
+  let previewServer: http.Server | null = null
+  let previewServerPort = 0
+  let previewServerDir = ''
+
+  const MIME_TYPES: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
+    '.mjs': 'application/javascript; charset=utf-8', '.ts': 'text/typescript; charset=utf-8',
+    '.tsx': 'text/typescript; charset=utf-8', '.jsx': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8', '.xml': 'application/xml; charset=utf-8',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon', '.bmp': 'image/bmp',
+    '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+    '.eot': 'application/vnd.ms-fontobject', '.otf': 'font/otf',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogg': 'video/ogg',
+    '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+    '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8',
+  }
+
+  function getMimeType(filePath: string): string {
+    const ext = extname(filePath).toLowerCase()
+    return MIME_TYPES[ext] || 'application/octet-stream'
+  }
+
+  ipcMain.handle('project:start-preview-server', async (_event, projectDir: string) => {
+    try {
+      // Stop existing server if running
+      if (previewServer) {
+        previewServer.close()
+        previewServer = null
+      }
+
+      // If same dir, restart with new port
+      previewServerDir = projectDir
+
+      const server = http.createServer((req, res) => {
+        try {
+          let urlPath = (req.url || '/').split('?')[0].split('#')[0]
+          if (urlPath === '/') urlPath = '/index.html'
+
+          // Security: prevent directory traversal
+          const normalized = path.normalize(urlPath).replace(/^(\.\.[\/\\])+/, '')
+          const filePath = join(projectDir, normalized)
+
+          // Verify file is within project directory
+          if (!filePath.startsWith(projectDir)) {
+            res.writeHead(403); res.end('Forbidden')
+            return
+          }
+
+          if (!existsSync(filePath)) {
+            res.writeHead(404); res.end('404 Not Found')
+            return
+          }
+
+          const stats = statSync(filePath)
+          if (stats.isDirectory()) {
+            // Directory listing
+            try {
+              const entries = readdirSync(filePath, { withFileTypes: true })
+              const listHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${path.basename(filePath)}</title><style>body{font-family:system-ui,sans-serif;padding:20px;background:#fafbfc}h1{font-size:18px;color:#1a1a2e}ul{list-style:none;padding:0}li{margin:4px 0}a{color:#6c5ce7;text-decoration:none;font-size:14px}a:hover{text-decoration:underline}.dir{font-weight:600}.size{color:#9a9ab0;font-size:12px;margin-left:8px}</style></head><body><h1>📁 ${path.relative(projectDir, filePath) || '/'}</h1><ul>${entries.map(e => `<li>${e.isDirectory() ? '📁' : '📄'} <a href="${encodeURIComponent(e.name)}${e.isDirectory() ? '/' : ''}" class="${e.isDirectory() ? 'dir' : ''}">${e.name}</a>${e.isFile() ? `<span class="size">${(statSync(join(filePath, e.name)).size / 1024).toFixed(1)} KB</span>` : ''}</li>`).join('')}</ul></body></html>`
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+              res.end(listHtml)
+            } catch {
+              res.writeHead(500); res.end('Error listing directory')
+            }
+            return
+          }
+
+          // Serve file
+          const mime = getMimeType(filePath)
+          const fileSize = stats.size
+
+          // For large files (>5MB), use streaming
+          if (fileSize > 5 * 1024 * 1024) {
+            res.writeHead(200, {
+              'Content-Type': mime,
+              'Content-Length': fileSize,
+              'Cache-Control': 'no-cache',
+            })
+            const stream = createReadStream(filePath)
+            stream.pipe(res)
+            stream.on('error', () => { try { res.end() } catch {} })
+            return
+          }
+
+          const content = readFileSync(filePath)
+          res.writeHead(200, {
+            'Content-Type': mime,
+            'Content-Length': content.length,
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+          })
+          res.end(content)
+        } catch {
+          try { res.writeHead(500); res.end('Internal Server Error') } catch {}
+        }
+      })
+
+      // Find available port
+      await new Promise<void>((resolve, reject) => {
+        server.listen(0, '127.0.0.1', () => {
+          const addr = server.address()
+          if (addr && typeof addr === 'object') {
+            previewServerPort = addr.port
+            resolve()
+          } else {
+            reject(new Error('Failed to get server address'))
+          }
+        })
+        server.on('error', reject)
+      })
+
+      previewServer = server
+      console.log(`[Preview Server] Started on http://127.0.0.1:${previewServerPort} serving ${projectDir}`)
+      return { success: true, port: previewServerPort, url: `http://127.0.0.1:${previewServerPort}` }
+    } catch (err: any) {
+      console.error('[Preview Server] Failed to start:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('project:stop-preview-server', async () => {
+    try {
+      if (previewServer) {
+        previewServer.close()
+        previewServer = null
+        previewServerPort = 0
+        previewServerDir = ''
+        console.log('[Preview Server] Stopped')
+      }
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
     }
   })
 

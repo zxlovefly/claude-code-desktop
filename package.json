@@ -1,6 +1,6 @@
 {
   "name": "claude-code-desktop",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Desktop UI wrapper for Claude Code CLI with model switching and traffic monitoring",
   "main": "./out/main/index.js",
   "scripts": {

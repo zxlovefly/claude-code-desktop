@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -37,7 +37,7 @@ function ProviderAvatar({ provider }: { provider: string }) {
   )
 }
 
-export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected = false, showSelect = false, onDelete }: AssistantMessageProps) {
+export const AssistantMessage = memo(function AssistantMessage({ message, onCopy, onToggleSelect, isSelected = false, showSelect = false, onDelete }: AssistantMessageProps) {
   const hasContent = message.content.length > 0
   const [showTools, setShowTools] = useState(false)
   const [showActions, setShowActions] = useState(false)
@@ -58,20 +58,9 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
     })
   }, [])
 
-  // ── Parse message content: separate tool calls from actual response ──
-  const { cleanContent, toolCalls } = useMemo(() => {
-    const text = message.content
-    // Pattern: **tool_name**\n\n```language\n...\n```
-    const toolPattern = /\*\*([\w_]+)\*\*\s*\n\s*```(\w*)\n([\s\S]*?)```\s*/g
-    const calls: { name: string; lang: string; body: string }[] = []
-    let match
-    while ((match = toolPattern.exec(text)) !== null) {
-      calls.push({ name: match[1], lang: match[2] || '', body: match[3].trim() })
-    }
-    // Remove all tool call blocks from displayed content
-    const clean = text.replace(toolPattern, '').replace(/\n{3,}/g, '\n\n').trim()
-    return { cleanContent: clean, toolCalls: calls }
-  }, [message.content])
+  // Tool calls come from message.toolResults (stored separately from content).
+  // Content stays clean — only the AI's text response. No regex parsing needed.
+  const toolCalls = message.toolResults || []
 
   const markdownComponents = useMemo(
     () => ({
@@ -217,7 +206,7 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
 
         {/* Message body */}
         <div className="max-w-[85%]">
-          {/* Avatar — shows actual model provider + name */}
+          {/* Avatar — shows actual model provider + subtle streaming indicator */}
           <div className="flex items-center gap-2 mb-1.5">
             <div className="w-5 h-5 rounded-full bg-[#f0f0f5] flex items-center justify-center flex-shrink-0">
               {modelInfo ? <ProviderAvatar provider={modelInfo.provider} /> : <IconDeepSeek />}
@@ -225,20 +214,39 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
             <span className="text-[10px] text-[#9a9ab0] font-medium">
               {modelInfo?.display || 'AI 助手'}
             </span>
-            {message.streaming && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[#6c5ce7] animate-pulse-dot" />
+            {/* Tool-specific status: shown only when executing a concrete tool (e.g. "📦 安装中").
+                Thinking/responding states are hidden — just the subtle dot below suffices. */}
+            {message.streaming && message.streamingStatus &&
+              message.streamingStatus !== 'thinking' &&
+              message.streamingStatus !== 'responding' && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#9a9ab0]/8 text-[9px] text-[#9a9ab0] font-normal">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
+                  <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round"/>
+                </svg>
+                {message.streamingStatus}
+              </span>
+            )}
+            {/* Subtle pulsing dot — shown during thinking/responding (not during tool exec) */}
+            {message.streaming && (!message.streamingStatus || message.streamingStatus === 'thinking' || message.streamingStatus === 'responding') && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#9a9ab0] animate-pulse-dot opacity-50" />
             )}
           </div>
 
           {/* Bubble */}
           <div className={`bg-white border rounded-2xl rounded-bl-md px-4 py-3 shadow-sm ${isSelected ? 'ring-2 ring-[#6c5ce7] ring-offset-1 border-[#6c5ce7]' : 'border-[#e5e6eb]'}`}>
           {hasContent ? (
-            <div className="text-sm text-[#1a1a2e] markdown-body">
-              {/* Clean response text (tool calls removed) */}
-              {cleanContent ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {cleanContent}
-                </ReactMarkdown>
+            <div className="text-sm text-[#1a1a2e] markdown-body [overflow-wrap:anywhere]">
+              {/* AI text response — content is clean (tool results stored separately) */}
+              {message.content ? (
+                // During streaming: render as plain text (massive perf boost — skips ReactMarkdown re-parsing)
+                // After streaming: full markdown rendering with syntax highlighting
+                message.streaming ? (
+                  <div className="whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">{message.content}</div>
+                ) : (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {message.content}
+                  </ReactMarkdown>
+                )
               ) : null}
 
               {/* Collapsible tool calls section */}
@@ -265,11 +273,11 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
                           <div className="px-3 py-1.5 bg-[#f5f6f8] border-b border-[#e5e6eb] flex items-center justify-between">
                             <span className="text-[10px] font-semibold text-[#6c5ce7]">{tc.name}</span>
                             <button
-                              onClick={() => navigator.clipboard.writeText(tc.body).catch(() => {})}
+                              onClick={() => navigator.clipboard.writeText(tc.result).catch(() => {})}
                               className="text-[9px] text-[#9a9ab0] hover:text-[#6c5ce7]"
                             >复制</button>
                           </div>
-                          <pre className="px-3 py-2 text-[10px] font-mono text-[#4a4a6a] bg-[#fafbfc] overflow-x-auto max-h-40 whitespace-pre-wrap">{tc.body}</pre>
+                          <pre className="px-3 py-2 text-[10px] font-mono text-[#4a4a6a] bg-[#fafbfc] overflow-x-auto max-h-40 whitespace-pre-wrap">{tc.result}</pre>
                         </div>
                       ))}
                     </div>
@@ -278,12 +286,11 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
               )}
             </div>
           ) : message.streaming ? (
-            <div className="flex items-center gap-1 text-[#9a9ab0] text-sm">
-              <span>思考中</span>
+            <div className="flex items-center gap-1.5 text-[#9a9ab0]/60 text-xs">
               <span className="inline-flex gap-0.5">
-                <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-1 h-1 rounded-full bg-[#9a9ab0] animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-1 rounded-full bg-[#9a9ab0] animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-1 rounded-full bg-[#9a9ab0] animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
             </div>
           ) : null}
@@ -296,4 +303,4 @@ export function AssistantMessage({ message, onCopy, onToggleSelect, isSelected =
     </div>
     </div>
   )
-}
+})

@@ -20,6 +20,8 @@ interface ChatStoreState {
   initConversation: (convId: string) => void
   addMessage: (convId: string, msg: ChatMessage) => void
   updateLastMessage: (convId: string, content: string, streaming?: boolean) => void
+  updateLastMessageStatus: (convId: string, status: ChatMessage['streamingStatus']) => void
+  appendToolResult: (convId: string, name: string, result: string) => void
   setStreaming: (s: boolean) => void
   deleteMessages: (convId: string, messageIds: string[]) => void
   clearConversation: (convId: string) => void
@@ -78,6 +80,38 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const last = msgs[msgs.length - 1]
       if (last && last.role === 'assistant') {
         msgs[msgs.length - 1] = { ...last, content, streaming }
+      }
+      return {
+        conversations: { ...s.conversations, [convId]: { ...conv, messages: msgs, updatedAt: Date.now() } },
+      }
+    })
+  },
+
+  updateLastMessageStatus: (convId, streamingStatus) => {
+    set((s) => {
+      const conv = s.conversations[convId]
+      if (!conv) return s
+      const msgs = [...conv.messages]
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, streamingStatus }
+      }
+      return {
+        conversations: { ...s.conversations, [convId]: { ...conv, messages: msgs, updatedAt: Date.now() } },
+      }
+    })
+  },
+
+  /** Append a tool result to the last message's toolResults (keeps content clean) */
+  appendToolResult: (convId, name, result) => {
+    set((s) => {
+      const conv = s.conversations[convId]
+      if (!conv) return s
+      const msgs = [...conv.messages]
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === 'assistant') {
+        const existing = last.toolResults || []
+        msgs[msgs.length - 1] = { ...last, toolResults: [...existing, { name, result }] }
       }
       return {
         conversations: { ...s.conversations, [convId]: { ...conv, messages: msgs, updatedAt: Date.now() } },

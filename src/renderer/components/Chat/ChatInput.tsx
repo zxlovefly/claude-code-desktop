@@ -59,7 +59,8 @@ export function ChatInput({ onSend, streaming, onCancel, prepopulate, onConsumed
 
   const handleSend = () => {
     const text = input
-    if ((!text.trim() && files.length === 0) || streaming) return
+    if (!text.trim() && files.length === 0) return
+    // Always allow sending — if streaming, it will be queued
     onSend(text, files.length > 0 ? files : undefined)
     setInput(''); setFiles([]); setUploadError('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -133,10 +134,10 @@ export function ChatInput({ onSend, streaming, onCancel, prepopulate, onConsumed
 
         <div className="flex-1 relative">
           <textarea ref={textareaRef} value={input} onChange={e => { setInput(e.target.value); adjustHeight() }} onKeyDown={handleKeyDown}
-            placeholder="输入开发需求... (可上传文件/图片 · Enter 发送)"
-            rows={1} disabled={streaming}
-            className="w-full bg-[#f5f6f8] border border-[#e5e6eb] rounded-xl px-4 py-2.5 text-sm text-[#1a1a2e] placeholder-[#9a9ab0] outline-none focus:border-[#6c5ce7] focus:shadow-[0_0_0_2px_rgba(108,92,231,0.1)] resize-none transition-all duration-150 disabled:opacity-50 custom-scrollbar"
-            style={{ maxHeight: '200px' }}
+            placeholder={streaming ? "AI 正在处理... 可以继续输入新任务 (Enter 发送 · 自动追加到队列)" : "输入开发需求... (可上传文件/图片 · Enter 发送 · /btw 启动后台子任务)"}
+            rows={1}
+            className="w-full bg-[#f5f6f8] border border-[#e5e6eb] rounded-xl px-4 py-2.5 text-sm text-[#1a1a2e] placeholder-[#9a9ab0] outline-none focus:border-[#6c5ce7] focus:shadow-[0_0_0_2px_rgba(108,92,231,0.1)] resize-none transition-all duration-150 custom-scrollbar break-words overflow-wrap-anywhere"
+            style={{ maxHeight: '120px' }}
           />
         </div>
 

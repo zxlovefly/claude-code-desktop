@@ -9,6 +9,7 @@ import { PromptLibraryPage } from './components/Pages/PromptLibraryPage'
 import { PrdPage } from './components/Pages/PrdPage'
 import { AnalysisPage } from './components/Pages/AnalysisPage'
 import { PrototypePage } from './components/Pages/PrototypePage'
+import { ProjectTestPage } from './components/Pages/ProjectTestPage'
 import { AutomationPanel } from './components/Sidebar/AutomationPanel'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { BottomToolbar } from './components/Main/BottomToolbar'
@@ -19,6 +20,17 @@ import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useMonitorStore } from './stores/monitorStore'
 import { useWechatBotStore } from './stores/wechatBotStore'
+
+// ── BTW (Background Task Worker) types ──
+export interface BtwInfo {
+  id: string
+  task: string
+  status: 'running' | 'completed' | 'cancelled' | 'error' | 'queued'
+  createdAt: number
+  outputPreview: string
+  error?: string
+  output?: string
+}
 
 interface CurrentModel {
   provider: string
@@ -42,6 +54,11 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState(() => 'chat-' + Date.now())
   const chatSessionIdRef = useRef(chatSessionId)
   chatSessionIdRef.current = chatSessionId
+  // Track the "main" session (the always-available default chat)
+  const [mainSessionId] = useState(() => chatSessionId)
+  // Track previous session for "back" navigation
+  const [previousSessionId, setPreviousSessionId] = useState<string | null>(null)
+  const isInSubSession = chatSessionId !== mainSessionId
   const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; provider: string; providerName: string }>>([])
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -50,6 +67,12 @@ export default function App() {
   const [prdSessionId] = useState(() => 'prd-' + Date.now())
   const [analysisSessionId] = useState(() => 'ana-' + Date.now())
   const [protoSessionId] = useState(() => 'proto-' + Date.now())
+  const [testSessionId] = useState(() => 'test-' + Date.now())
+
+  // ── BTW (Background Task Worker) state ──
+  const [btwTasks, setBtwTasks] = useState<Record<string, BtwInfo>>({})
+  const btwTasksRef = useRef(btwTasks)
+  btwTasksRef.current = btwTasks
 
   useEffect(() => {
     if (initialized.current) return; initialized.current = true
@@ -79,17 +102,87 @@ export default function App() {
     // ── Permanent chat event listeners ──
     const unsubs: (() => void)[] = []
 
-    unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
-      const sid = chatSessionIdRef.current
-      if (sId !== sid) return
+    // Renderer-side delta throttle: accumulate deltas and update store at ~10fps (100ms)
+    // This prevents React from choking on 20+ store updates/second during heavy streaming
+    let deltaBuf = ''
+    let deltaTimer: ReturnType<typeof setTimeout> | null = null
+    let thinkingTransitionDone = false // Only transition thinking→responding once
+    const flushDeltaBuf = (sid: string) => {
+      if (deltaTimer) { clearTimeout(deltaTimer); deltaTimer = null }
+      if (!deltaBuf) return
+      const text = deltaBuf; deltaBuf = ''
       const store = useChatStore.getState()
       const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(sid, last.content + (text as string), true)
+        store.updateLastMessage(sid, last.content + text, true)
+        // Transition thinking→responding once when first real text arrives
+        if (!thinkingTransitionDone && last.streamingStatus === 'thinking') {
+          thinkingTransitionDone = true
+          store.updateLastMessageStatus(sid, 'responding')
+        }
+      }
+    }
+    // Reset the transition flag on each new done/cancelled/error
+    const resetThinkingFlag = () => { thinkingTransitionDone = false }
+    unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
+      deltaBuf += (text as string)
+      if (!deltaTimer) {
+        deltaTimer = setTimeout(() => flushDeltaBuf(sid), 40) // 25fps — smoother streaming
       }
     }))
+    // Flush on done/cancelled/error
+    const flushNow = () => { flushDeltaBuf(chatSessionIdRef.current); resetThinkingFlag() }
 
+    // Message-start: create assistant placeholder when queued task begins
+    // (fires from processMessageQueue when backend starts processing a queued message)
+    unsubs.push(window.electron.receive('chat:message-start', (sId: unknown) => {
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
+      const store = useChatStore.getState()
+      const asst = { id: 'asst-' + Date.now(), role: 'assistant' as const, content: '', timestamp: Date.now(), streaming: true, streamingStatus: 'thinking' as string }
+      store.addMessage(sid, asst)
+      store.setStreaming(true)
+    }))
+
+    // Tool-start: show task-specific status (安装中/修复中/读取文件中...)
+    const toolStatusLabel = (name: string, input: unknown): string => {
+      const inp = input as Record<string, unknown> | undefined
+      const cmd = (inp?.command as string || '').toLowerCase()
+      const filePath = (inp?.file_path as string || '')
+      if (name === 'execute_command') {
+        if (cmd.includes('install') || cmd.includes('pip ') || cmd.includes('npm ') || cmd.includes('apt ')) return '安装中'
+        if (cmd.includes('fix') || cmd.includes('repair') || cmd.includes('patch')) return '修复中'
+        if (cmd.includes('git clone') || cmd.includes('git pull')) return '拉取代码中'
+        if (cmd.includes('git push')) return '推送代码中'
+        if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('make')) return '构建中'
+        if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('pytest')) return '测试中'
+        if (cmd.includes('curl') || cmd.includes('wget')) return '下载中'
+        if (cmd.includes('npm run') || cmd.includes('yarn ')) return '运行脚本中'
+        return '执行命令中'
+      }
+      if (name === 'read_file') {
+        const ext = filePath.split('.').pop()?.toLowerCase()
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext || '')) return '读取图片中'
+        if (['pdf', 'doc', 'docx'].includes(ext || '')) return '解析文档中'
+        return '读取文件中'
+      }
+      if (name === 'write_file') return '写入文件中'
+      if (name === 'list_directory') return '列出目录中'
+      return name
+    }
+
+    unsubs.push(window.electron.receive('chat:tool-start', (sId: unknown, _toolId: unknown, name: unknown, input: unknown) => {
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
+      const label = toolStatusLabel(name as string, input)
+      useChatStore.getState().updateLastMessageStatus(sid, label)
+    }))
+
+    // Tool-result: store separately from content (keeps bubble clean).
+    // Tool results are shown in AssistantMessage's collapsed section.
     unsubs.push(window.electron.receive('chat:tool-result', (sId: unknown, info: unknown) => {
       const sid = chatSessionIdRef.current
       if (sId !== sid) return
@@ -98,18 +191,38 @@ export default function App() {
       const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(sid, last.content + `\n\n**${name}**\n\`\`\`\n${result}\n\`\`\``, true)
+        store.appendToolResult(sid, name, result)
+        if (last.streamingStatus && last.streamingStatus !== 'thinking' && last.streamingStatus !== 'responding') {
+          store.updateLastMessageStatus(sid, 'responding')
+        }
       }
+    }))
+
+    // BTW spawned notification: add as non-streaming assistant message
+    unsubs.push(window.electron.receive('btw:spawned', (sId: unknown, text: unknown) => {
+      const sid = chatSessionIdRef.current
+      if (sId !== sid) return
+      const store = useChatStore.getState()
+      store.addMessage(sid, {
+        id: 'btw-msg-' + Date.now(),
+        role: 'assistant' as const,
+        content: text as string,
+        timestamp: Date.now(),
+        streaming: false,
+      })
     }))
 
     unsubs.push(window.electron.receive('chat:done', (sId: unknown) => {
       const sid = chatSessionIdRef.current
       if (sId !== sid) return
+      resetThinkingFlag()
+      flushNow()
       const store = useChatStore.getState()
       const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
         store.updateLastMessage(sid, last.content, false)
+        store.updateLastMessageStatus(sid, undefined) // Clear stale exec status
       }
       store.setStreaming(false)
     }))
@@ -117,11 +230,14 @@ export default function App() {
     unsubs.push(window.electron.receive('chat:cancelled', (sId: unknown) => {
       const sid = chatSessionIdRef.current
       if (sId !== sid) return
+      resetThinkingFlag()
+      flushNow()
       const store = useChatStore.getState()
       const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
         store.updateLastMessage(sid, last.content + '\n\n*[已取消]*', false)
+        store.updateLastMessageStatus(sid, undefined) // Clear stale exec status
       }
       store.setStreaming(false)
     }))
@@ -129,20 +245,87 @@ export default function App() {
     unsubs.push(window.electron.receive('chat:error', (sId: unknown, message: unknown) => {
       const sid = chatSessionIdRef.current
       if (sId !== sid) return
+      resetThinkingFlag()
+      flushNow()
       const store = useChatStore.getState()
       const msgs = store.getMessages(sid)
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant' && last.streaming) {
-        store.updateLastMessage(sid, last.content || `Error: ${message}`, false)
+        // Append error so it's visible — don't swallow it with `last.content ||`
+        const errSuffix = `\n\n*[错误: ${message}]*`
+        store.updateLastMessage(sid, (last.content || '') + errSuffix, false)
+        store.updateLastMessageStatus(sid, undefined) // Clear stale exec status
       } else {
         store.addMessage(sid, {
           id: 'err-' + Date.now(),
           role: 'assistant' as const,
-          content: `Error: ${message}`,
+          content: `[错误] ${message}`,
           timestamp: Date.now(),
         })
       }
       store.setStreaming(false)
+    }))
+
+    // ── BTW (Background Task Worker) event listeners ──
+    unsubs.push(window.electron.receive('btw:started', (btwId: unknown, task: unknown, parentSessionId: unknown) => {
+      const info: BtwInfo = { id: btwId as string, task: task as string, status: 'running', createdAt: Date.now(), outputPreview: '', output: '' }
+      setBtwTasks(prev => ({ ...prev, [btwId as string]: info }))
+      // Also show a notification in the parent chat session
+      const pSid = parentSessionId as string
+      if (pSid === chatSessionIdRef.current) {
+        const store = useChatStore.getState()
+        const msgs = store.getMessages(pSid)
+        const last = msgs[msgs.length - 1]
+        if (last?.role === 'assistant' && last.streaming) {
+          store.updateLastMessage(pSid, last.content + `\n\n🔀 **后台子任务启动** \`${btwId}\`\n> ${(task as string).slice(0, 80)}${(task as string).length > 80 ? '...' : ''}`, true)
+        }
+      }
+    }))
+
+    unsubs.push(window.electron.receive('btw:delta', (btwId: unknown, text: unknown) => {
+      setBtwTasks(prev => {
+        const btw = prev[btwId as string]
+        if (!btw) return prev
+        return { ...prev, [btwId as string]: { ...btw, output: (btw.output || '') + (text as string), outputPreview: ((btw.output || '') + (text as string)).slice(-500) } }
+      })
+    }))
+
+    unsubs.push(window.electron.receive('btw:done', (btwId: unknown, output: unknown) => {
+      setBtwTasks(prev => {
+        const btw = prev[btwId as string]
+        if (!btw) return prev
+        return { ...prev, [btwId as string]: { ...btw, status: 'completed', output: output as string, outputPreview: (output as string).slice(-500) } }
+      })
+    }))
+
+    unsubs.push(window.electron.receive('btw:cancelled', (btwId: unknown) => {
+      setBtwTasks(prev => {
+        const btw = prev[btwId as string]
+        if (!btw) return prev
+        return { ...prev, [btwId as string]: { ...btw, status: 'cancelled' } }
+      })
+    }))
+
+    unsubs.push(window.electron.receive('btw:error', (btwId: unknown, error: unknown) => {
+      setBtwTasks(prev => {
+        const btw = prev[btwId as string]
+        if (!btw) return prev
+        return { ...prev, [btwId as string]: { ...btw, status: 'error', error: error as string } }
+      })
+    }))
+
+    // BTW result forwarded to parent session
+    unsubs.push(window.electron.receive('btw:result', (parentSessionId: unknown, btwId: unknown, output: unknown) => {
+      const pSid = parentSessionId as string
+      if (pSid === chatSessionIdRef.current) {
+        const store = useChatStore.getState()
+        const msgs = store.getMessages(pSid)
+        const last = msgs[msgs.length - 1]
+        if (last?.role === 'assistant' && last.streaming) {
+          const summary = (output as string).length > 1000 ? (output as string).slice(-1000) : output as string
+          store.updateLastMessage(pSid, last.content + `\n\n✅ **后台子任务完成** \`${btwId}\`\n\`\`\`\n${summary}\n\`\`\``, true)
+        }
+      }
     }))
 
     // Listen for scheduler task executions — auto-send to chat
@@ -175,7 +358,7 @@ export default function App() {
     // status messages ([已取消]/Error:) here; the per-page listeners handle that.
     unsubs.push(window.electron.receive('chat:delta', (sId: unknown, text: unknown) => {
       const sid = sId as string
-      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : sid.startsWith('test-') ? 'testOutput' : null
       if (!persistKey) return
       try {
         const saved = localStorage.getItem('zxcode-tool-outputs')
@@ -189,14 +372,14 @@ export default function App() {
 
     unsubs.push(window.electron.receive('chat:done', (sId: unknown) => {
       const sid = sId as string
-      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : sid.startsWith('test-') ? 'testOutput' : null
       if (!persistKey) return
       try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
     }))
 
     unsubs.push(window.electron.receive('chat:cancelled', (sId: unknown) => {
       const sid = sId as string
-      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : sid.startsWith('test-') ? 'testOutput' : null
       if (!persistKey) return
       // Only clear the streaming marker — the per-page listener appends the status message
       try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
@@ -204,7 +387,7 @@ export default function App() {
 
     unsubs.push(window.electron.receive('chat:error', (sId: unknown, message: unknown) => {
       const sid = sId as string
-      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : null
+      const persistKey = sid.startsWith('prd-') ? 'prdOutput' : sid.startsWith('ana-') ? 'analysisOutput' : sid.startsWith('proto-') ? 'protoOutput' : sid.startsWith('test-') ? 'testOutput' : null
       if (!persistKey) return
       // Only clear the streaming marker — the per-page listener appends the status message
       try { localStorage.removeItem('zxcode-tool-streaming') } catch {}
@@ -251,9 +434,30 @@ export default function App() {
       store.initConversation(sessionId)
     }
     store.setStreaming(false)
+    // Track where we came from so we can go back
+    if (oldId !== sessionId) {
+      setPreviousSessionId(oldId)
+    }
     // Switch to target session
     setChatSessionId(sessionId)
   }, [])
+
+  // Return from a sub-session (history navigation) back to main chat
+  const handleReturnToMain = useCallback(() => {
+    const currentId = chatSessionIdRef.current
+    // Cancel current
+    window.electron.invoke('chat:cancel', currentId)
+    const store = useChatStore.getState()
+    store.setStreaming(false)
+    // Go back to previous session or main session
+    const targetId = previousSessionId || mainSessionId
+    window.electron.invoke('chat:create-session', targetId)
+    if (!store.getConversation(targetId)) {
+      store.initConversation(targetId)
+    }
+    setChatSessionId(targetId)
+    setPreviousSessionId(null)
+  }, [previousSessionId, mainSessionId])
 
   const handleAutomationExecute = useCallback((prompt: string) => {
     setAutoSendPrompt(prompt)
@@ -264,7 +468,7 @@ export default function App() {
   const isChatPage = navPage === 'new-task'
 
   // Tool pages (no header/ZXCODE branding)
-  if (navPage === 'prd' || navPage === 'analysis' || navPage === 'prototype') {
+  if (navPage === 'prd' || navPage === 'analysis' || navPage === 'prototype' || navPage === 'project-test') {
     return (
       <div className="flex h-screen w-screen overflow-hidden bg-[#f5f6f8]">
         <LeftNav activePage={navPage} onNavigate={setNavPage} />
@@ -272,6 +476,7 @@ export default function App() {
           {navPage === 'prd' && <PrdPage sessionId={prdSessionId} onNavigateToPage={setNavPage} />}
           {navPage === 'analysis' && <AnalysisPage sessionId={analysisSessionId} onNavigateToPage={setNavPage} />}
           {navPage === 'prototype' && <PrototypePage sessionId={protoSessionId} onNavigateToPage={setNavPage} />}
+          {navPage === 'project-test' && <ProjectTestPage sessionId={testSessionId} onNavigateToPage={setNavPage} />}
         </div>
       </div>
     )
@@ -333,6 +538,20 @@ export default function App() {
               </svg>
             </button>
           </div>
+
+          {/* Return to main chat button — shown when in a sub-session (history/BTW navigation) */}
+          {isInSubSession && (
+            <button
+              onClick={handleReturnToMain}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#6c5ce7]/20 bg-[#6c5ce7]/5 text-[#6c5ce7] text-xs font-medium hover:bg-[#6c5ce7]/10 transition-all"
+              title="返回主对话"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+              返回主对话
+            </button>
+          )}
 
           {/* Model switcher — clickable dropdown */}
           <div className="relative">
@@ -415,6 +634,7 @@ export default function App() {
                   onWorkspaceChange={setWorkspace}
                   autoSendPrompt={autoSendPrompt} onAutoSent={() => setAutoSendPrompt('')}
                   onNavigateToSession={handleNavigateToSession}
+                  btwTasks={btwTasks}
                 />
               </div>
               <BottomToolbar

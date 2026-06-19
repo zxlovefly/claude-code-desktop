@@ -5,6 +5,7 @@ import { PromptTemplates } from '../Main/PromptTemplates'
 import { useChatStore } from '../../stores/chatStore'
 import { useHistoryStore, type ChatHistoryEntry } from '../../stores/historyStore'
 import { ConfirmDialog } from '../ConfirmDialog'
+import type { BtwInfo } from '../../App'
 
 interface ChatTerminalViewProps {
   sessionId: string; visible: boolean; scenario: string
@@ -13,12 +14,13 @@ interface ChatTerminalViewProps {
   autoSendPrompt?: string
   onAutoSent?: () => void
   onNavigateToSession?: (sessionId: string) => void
+  btwTasks?: Record<string, BtwInfo>
 }
 
 let msgIdCounter = 0
 const nextId = () => `msg_${++msgIdCounter}_${Date.now()}`
 
-export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, filledPrompt, workspace, onWorkspaceChange, autoSendPrompt, onAutoSent, onNavigateToSession }: ChatTerminalViewProps) {
+export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, filledPrompt, workspace, onWorkspaceChange, autoSendPrompt, onAutoSent, onNavigateToSession, btwTasks }: ChatTerminalViewProps) {
   const messages = useChatStore(s => s.getMessages(sessionId))
   const addMessage = useChatStore(s => s.addMessage)
   const updateLastMessage = useChatStore(s => s.updateLastMessage)
@@ -37,6 +39,7 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
   const [showHistory, setShowHistory] = useState(false)
   const [confirmClearHistory, setConfirmClearHistory] = useState(false)
   const [confirmClearChat, setConfirmClearChat] = useState(false)
+  const [confirmDeleteEntry, setConfirmDeleteEntry] = useState<string | null>(null)
   const navigatingRef = useRef(false)
 
   // Init conversation on mount / session change
@@ -67,9 +70,14 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
   }, [messages, streaming])
 
   const handleSend = useCallback((text: string, files?: Array<{ fileName: string; content: string; isImage: boolean; base64?: string; isDocument?: boolean; fileType?: string }>) => {
-    if ((!text.trim() && !files?.length) || streaming) return
+    if (!text.trim() && !files?.length) return
+    // Mid-task messaging: don't touch the current streaming message!
+    // BUGFIX: Previously we set streaming=false on the last message, which
+    // caused all subsequent deltas to be silently dropped (the delta handler
+    // checks last.streaming before appending). The backend will finish the
+    // current stream and auto-process the queued message via processMessageQueue.
     const msgs = useChatStore.getState().getMessages(sessionId); const last = msgs[msgs.length - 1]
-    if (last?.streaming) updateLastMessage(sessionId, last.content, false)
+    const isMidTask = !!(last?.streaming && streaming)
 
     let fullText = text
     const images: string[] = []
@@ -89,8 +97,19 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
     if (workspace) fullText = `[工作目录: ${workspace}]\n${fullText}`
 
     addMessage(sessionId, { id: nextId(), role: 'user', content: text || `[上传了 ${files?.length} 个文件]`, timestamp: Date.now() })
-    const asst = { id: nextId(), role: 'assistant' as const, content: '', timestamp: Date.now(), streaming: true }
-    addMessage(sessionId, asst); setStreaming(true)
+    // Don't create assistant placeholder for /btw commands — they spawn
+    // independent sub-agents tracked in the BTW panel. A notification
+    // message is created by the btw:spawned event handler.
+    const isBtw = text.trim().startsWith('/btw')
+    if (!isBtw) {
+      // Only create assistant placeholder if NOT mid-task (no current stream).
+      // For mid-task messages, the placeholder is created when the queued task
+      // actually starts (via chat:message-start event from processMessageQueue).
+      if (!isMidTask) {
+        const asst = { id: nextId(), role: 'assistant' as const, content: '', timestamp: Date.now(), streaming: true, streamingStatus: 'thinking' as const }
+        addMessage(sessionId, asst); setStreaming(true)
+      }
+    }
     window.electron.invoke('chat:send-message', sessionId, fullText, images.length > 0 ? images : undefined)
   }, [sessionId, streaming, workspace])
 
@@ -133,6 +152,17 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
     onNavigateToSession?.(entry.id)
   }
 
+  const historyDeleteEntry = (entryId: string) => {
+    // Remove from history store
+    deleteChatEntries([entryId])
+    // If deleting the current session's history, also clear the chat
+    if (entryId === sessionId) {
+      clearConversation(sessionId)
+      setStreaming(false)
+    }
+    setShowHistory(false)
+  }
+
   if (!visible) return null
 
   return (
@@ -159,13 +189,27 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
                     {chatHistory.map(h => (
                       <div key={h.id}
                         onClick={() => handleLoadHistory(h)}
-                        className={`px-3 py-2 text-xs border-b border-[#e5e6eb]/30 cursor-pointer transition-colors ${h.id === sessionId ? 'bg-[#6c5ce7]/5' : 'hover:bg-[#f0f0f5]'}`}
+                        className={`group px-3 py-2 text-xs border-b border-[#e5e6eb]/30 cursor-pointer transition-colors flex items-center justify-between ${h.id === sessionId ? 'bg-[#6c5ce7]/5' : 'hover:bg-[#f0f0f5]'}`}
                       >
-                        <div className="font-medium text-[#1a1a2e] truncate">{h.title}</div>
-                        <div className="text-[9px] text-[#9a9ab0] mt-0.5">
-                          {new Date(h.updatedAt).toLocaleString()} · {h.messages.length} 条消息
-                          {h.id === sessionId && <span className="ml-1 text-[#6c5ce7]">(当前)</span>}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-[#1a1a2e] truncate">{h.title}</div>
+                          <div className="text-[9px] text-[#9a9ab0] mt-0.5">
+                            {new Date(h.updatedAt).toLocaleString()} · {h.messages.length} 条消息
+                            {h.id === sessionId && <span className="ml-1 text-[#6c5ce7]">(当前)</span>}
+                          </div>
                         </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setConfirmDeleteEntry(h.id)
+                          }}
+                          className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#e17055]/10 hover:text-[#e17055] text-[#9a9ab0] transition-all ml-2"
+                          title="删除此历史记录"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                          </svg>
+                        </button>
                       </div>
                     ))}
                     <div className="px-3 py-2">
@@ -183,8 +227,18 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
         </div>
       </div>
       <MessageList messages={messages} onDeleteMessages={handleDeleteMessages} />
+      {/* ── BTW (Background Task Worker) Panel ── */}
+      {btwTasks && Object.keys(btwTasks).length > 0 && <BtwPanel btwTasks={btwTasks} />}
       <PromptTemplates onSelect={onPromptFill} category={scenario} subCategory={subCategory} onSubCategoryChange={setSubCategory} />
-      <ChatInput onSend={handleSend} streaming={streaming} onCancel={() => window.electron.invoke('chat:cancel', sessionId)} prepopulate={filledPrompt} onConsumed={() => onPromptFill('')} autoSendPrompt={autoSendPrompt} onAutoSent={onAutoSent} />
+      {/* Streaming status bar — shows current task & phase at bottom, Claude Code CLI style */}
+      <StreamingStatusBar messages={messages} />
+      <ChatInput onSend={handleSend} streaming={streaming} onCancel={() => {
+        // Stop streaming immediately and signal the backend to cancel.
+        // The chat:cancelled event will finalize the message content.
+        const store = useChatStore.getState()
+        store.setStreaming(false)
+        window.electron.invoke('chat:cancel', sessionId)
+      }} prepopulate={filledPrompt} onConsumed={() => onPromptFill('')} autoSendPrompt={autoSendPrompt} onAutoSent={onAutoSent} />
 
       {/* Clear history confirmation */}
       <ConfirmDialog
@@ -214,6 +268,22 @@ export function ChatTerminalView({ sessionId, visible, scenario, onPromptFill, f
           setConfirmClearChat(false)
         }}
         onCancel={() => setConfirmClearChat(false)}
+      />
+
+      {/* Delete single history entry confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteEntry !== null}
+        title="删除历史记录"
+        message="确定要删除这条聊天历史记录吗？删除后无法恢复。"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        onConfirm={() => {
+          if (confirmDeleteEntry) {
+            historyDeleteEntry(confirmDeleteEntry)
+          }
+          setConfirmDeleteEntry(null)
+        }}
+        onCancel={() => setConfirmDeleteEntry(null)}
       />
     </div>
   )
@@ -250,6 +320,131 @@ function WorkspaceBadge({ workspace, onChange }: { workspace: string; onChange: 
         title="点击手动输入工作目录路径">
         {workspace ? workspace.split(/[/\\]/).pop() : '选择工作空间'}
       </button>
+    </div>
+  )
+}
+
+// ── Streaming Status Bar: shows current AI task & phase at bottom ──
+function StreamingStatusBar({ messages }: { messages: Array<{ role: string; streaming?: boolean; streamingStatus?: string }> }) {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'assistant' || !last.streaming) return null
+
+  const status = last.streamingStatus
+  const isThinking = !status || status === 'thinking'
+  const isResponding = status === 'responding'
+  const isExecuting = !isThinking && !isResponding
+
+  return (
+    <div className="flex-shrink-0 px-4 py-1 border-t border-[#e5e6eb]/50 bg-[#fafbfc] flex items-center gap-2 text-[10px]">
+      {/* Spinner icon */}
+      {isExecuting ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#e17055" strokeWidth="2" className="animate-spin">
+          <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round"/>
+        </svg>
+      ) : (
+        <span className="inline-flex gap-0.5">
+          <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-1 h-1 rounded-full bg-[#6c5ce7] animate-bounce" style={{ animationDelay: '300ms' }} />
+        </span>
+      )}
+      {/* Status text */}
+      <span className={isExecuting ? 'text-[#e17055] font-medium' : 'text-[#9a9ab0]'}>
+        {isExecuting ? `执行中: ${status}` : isResponding ? '生成回复中' : 'AI 思考中'}
+      </span>
+      {/* Tool icon for executing state */}
+      {isExecuting && (
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#e17055" strokeWidth="2" className="opacity-60">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+        </svg>
+      )}
+    </div>
+  )
+}
+
+// ── BTW Panel: shows active background sub-agents ──
+function BtwPanel({ btwTasks }: { btwTasks: Record<string, BtwInfo> }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const entries = Object.values(btwTasks)
+
+  const toggleExpand = (id: string) => {
+    setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const handleCancelBtw = async (btwId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    await window.electron.invoke('btw:cancel', btwId)
+  }
+
+  const statusColors: Record<string, string> = {
+    running: '#6c5ce7',
+    completed: '#00b894',
+    cancelled: '#9a9ab0',
+    error: '#e17055',
+    queued: '#f0a500',
+  }
+
+  const statusLabels: Record<string, string> = {
+    running: '运行中',
+    completed: '已完成',
+    cancelled: '已取消',
+    error: '出错',
+    queued: '排队中',
+  }
+
+  const statusIcons: Record<string, string> = {
+    running: '⟳',
+    completed: '✓',
+    cancelled: '✕',
+    error: '⚠',
+    queued: '⏳',
+  }
+
+  return (
+    <div className="flex-shrink-0 border-t border-[#e5e6eb] bg-[#fafbfc]">
+      <div className="px-4 py-1.5 text-[10px] text-[#9a9ab0] font-medium flex items-center gap-2">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        后台子任务 ({entries.length})
+        <span className="text-[#6c5ce7]">{entries.filter(e => e.status === 'running').length} 运行中</span>
+      </div>
+      <div className="max-h-40 overflow-y-auto custom-scrollbar">
+        {entries.map(btw => (
+          <div key={btw.id}>
+            <div
+              onClick={() => toggleExpand(btw.id)}
+              className={`px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-[#f0f0f5] transition-colors border-b border-[#e5e6eb]/50 ${btw.status === 'running' ? 'bg-[#6c5ce7]/[0.02]' : ''}`}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span style={{ color: statusColors[btw.status] }} className="text-xs font-bold">{statusIcons[btw.status]}</span>
+                <span className="text-[11px] text-[#1a1a2e] truncate">{btw.task.slice(0, 60)}{btw.task.length > 60 ? '...' : ''}</span>
+                <span style={{ color: statusColors[btw.status] }} className="text-[9px] ml-1 flex-shrink-0">{statusLabels[btw.status]}</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                <span className="text-[9px] text-[#9a9ab0]">{new Date(btw.createdAt).toLocaleTimeString()}</span>
+                {(btw.status === 'running' || btw.status === 'queued') && (
+                  <button onClick={(e) => handleCancelBtw(btw.id, e)}
+                    className="text-[9px] text-[#e17055] hover:underline">取消</button>
+                )}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  className={`text-[#9a9ab0] transition-transform ${expanded[btw.id] ? 'rotate-180' : ''}`}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+            </div>
+            {/* Expanded output preview */}
+            {expanded[btw.id] && (
+              <div className="px-4 py-2 bg-[#f5f6f8] border-b border-[#e5e6eb]/50 text-[10px] text-[#4a4a6a] max-h-48 overflow-y-auto custom-scrollbar">
+                {btw.error && (
+                  <div className="text-[#e17055] mb-1">错误: {btw.error}</div>
+                )}
+                <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed">{btw.output || '(尚输出)'}</pre>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

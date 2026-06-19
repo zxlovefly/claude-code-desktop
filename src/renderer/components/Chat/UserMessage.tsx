@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 
 interface UserMessageProps {
   content: string
@@ -9,7 +9,7 @@ interface UserMessageProps {
   onDelete?: () => void
 }
 
-export function UserMessage({ content, onCopy, onToggleSelect, isSelected = false, showSelect = false, onDelete }: UserMessageProps) {
+export const UserMessage = memo(function UserMessage({ content, onCopy, onToggleSelect, isSelected = false, showSelect = false, onDelete }: UserMessageProps) {
   const [showActions, setShowActions] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -26,10 +26,10 @@ export function UserMessage({ content, onCopy, onToggleSelect, isSelected = fals
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      <div className="flex items-start gap-1">
+      <div className="flex items-start gap-1 max-w-[88%] ml-auto">
         {/* Message bubble */}
-        <div className={`w-fit max-w-[75%] bg-[#6c5ce7] text-white rounded-2xl rounded-br-md px-4 py-3 shadow-sm ${isSelected ? 'ring-2 ring-[#6c5ce7] ring-offset-1' : ''}`}>
-          <p className="text-sm leading-relaxed whitespace-pre-line">
+        <div className={`min-w-0 bg-[#6c5ce7] text-white rounded-2xl rounded-br-md px-4 py-3 shadow-sm overflow-hidden ${isSelected ? 'ring-2 ring-[#6c5ce7] ring-offset-1' : ''}`}>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
             {content}
           </p>
         </div>
@@ -66,4 +66,4 @@ export function UserMessage({ content, onCopy, onToggleSelect, isSelected = fals
       </div>
     </div>
   )
-}
+})

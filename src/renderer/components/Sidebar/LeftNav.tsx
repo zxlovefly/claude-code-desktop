@@ -14,8 +14,11 @@ function IconPrototype(props: SVGProps<SVGSVGElement>) {
 function IconPrompts(props: SVGProps<SVGSVGElement>) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
 }
+function IconProjectTest(props: SVGProps<SVGSVGElement>) {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/><polyline points="9 12 12 15 16 11"/></svg>
+}
 
-export type NavPage = 'new-task' | 'experts' | 'automation' | 'prd' | 'analysis' | 'prototype' | 'prompts' | 'wechat-bot'
+export type NavPage = 'new-task' | 'experts' | 'automation' | 'prd' | 'analysis' | 'prototype' | 'project-test' | 'prompts' | 'wechat-bot'
 
 interface LeftNavProps {
   activePage: NavPage
@@ -29,6 +32,7 @@ const NAV_ITEMS: { id: NavPage; label: string; Icon: typeof IconNewTask; section
   { id: 'prd', label: 'PRD 撰写', Icon: IconPrd, section: '产品工具' },
   { id: 'analysis', label: '竞品分析', Icon: IconAnalysis },
   { id: 'prototype', label: '原型设计', Icon: IconPrototype },
+  { id: 'project-test', label: '项目测试', Icon: IconProjectTest },
   { id: 'prompts', label: '提示词库', Icon: IconPrompts, section: '资源' },
   { id: 'wechat-bot', label: '微信机器人', Icon: IconWechat, section: '集成' },
 ]

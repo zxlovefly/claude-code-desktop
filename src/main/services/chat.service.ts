@@ -21,15 +21,62 @@ interface ChatSession {
   messages: Anthropic.MessageParam[]
   abortController: AbortController | null
   systemPromptOverride?: string // Per-session system prompt (for WeChat personas)
+  // Message queue for mid-task messaging
+  pendingMessages: Array<{ text: string; images?: string[] }>
+  // Batched delta output
+  deltaBuffer: string
+  deltaTimer: ReturnType<typeof setTimeout> | null
 }
+
+// ── Background Task Worker (BTW) Sub-agent ──
+export interface BtwSession {
+  id: string
+  task: string
+  status: 'running' | 'completed' | 'cancelled' | 'error' | 'queued'
+  createdAt: number
+  messages: Anthropic.MessageParam[]
+  abortController: AbortController | null
+  output: string
+  error?: string
+  // Batched delta output for BTW to prevent renderer flood
+  deltaBuffer: string
+  deltaTimer: ReturnType<typeof setTimeout> | null
+  parentSessionId: string
+}
+
+// ── BTW concurrency limiter ──
+const MAX_CONCURRENT_BTW = 3
 
 export class ChatService extends EventEmitter {
   private static instance: ChatService
   private sessions = new Map<string, ChatSession>()
+  private btwSessions = new Map<string, BtwSession>()
 
   static getInstance(): ChatService {
     if (!ChatService.instance) ChatService.instance = new ChatService()
     return ChatService.instance
+  }
+
+  // ── Event batching: flush deltas every 80ms to prevent renderer flood ──
+  private flushDelta(session: ChatSession): void {
+    if (session.deltaTimer) {
+      clearTimeout(session.deltaTimer)
+      session.deltaTimer = null
+    }
+    if (session.deltaBuffer) {
+      const text = session.deltaBuffer
+      session.deltaBuffer = ''
+      this.emit('delta', session.id, text)
+    }
+  }
+
+  private scheduleDelta(session: ChatSession, text: string): void {
+    session.deltaBuffer += text
+    if (!session.deltaTimer) {
+      session.deltaTimer = setTimeout(() => {
+        this.flushDelta(session)
+      }, 30) // Batch every 30ms (~33fps) for smooth streaming
+    }
   }
 
   private getApiConfig(): { apiKey: string; baseURL: string; model: string; providerName: string; providerId: string; modelDisplay: string; apiFormat: string } {
@@ -93,7 +140,7 @@ export class ChatService extends EventEmitter {
 
   createSession(id: string, systemPrompt?: string): void {
     if (!this.sessions.has(id)) {
-      this.sessions.set(id, { id, messages: [], abortController: null, systemPromptOverride: systemPrompt })
+      this.sessions.set(id, { id, messages: [], abortController: null, systemPromptOverride: systemPrompt, pendingMessages: [], deltaBuffer: '', deltaTimer: null })
     } else if (systemPrompt) {
       // Update system prompt on existing session AND clear history
       // so the new persona starts fresh without old conversation context
@@ -102,6 +149,8 @@ export class ChatService extends EventEmitter {
       sess.messages = []
       sess.abortController?.abort()
       sess.abortController = null
+      sess.pendingMessages = []
+      this.flushDelta(sess)
     }
   }
 
@@ -112,8 +161,10 @@ export class ChatService extends EventEmitter {
       sess.messages = []
       sess.systemPromptOverride = undefined
       sess.abortController = null
+      sess.pendingMessages = []
+      this.flushDelta(sess)
     } else {
-      this.sessions.set(id, { id, messages: [], abortController: null })
+      this.sessions.set(id, { id, messages: [], abortController: null, pendingMessages: [], deltaBuffer: '', deltaTimer: null })
     }
   }
 
@@ -123,7 +174,12 @@ export class ChatService extends EventEmitter {
   }
 
   cancel(sessionId: string): void {
-    this.sessions.get(sessionId)?.abortController?.abort()
+    const sess = this.sessions.get(sessionId)
+    if (sess) {
+      this.flushDelta(sess)
+      sess.pendingMessages = []
+      sess.abortController?.abort()
+    }
   }
 
   // ── One-shot generation (for PRD / Analysis / Prototype tools) ──
@@ -139,8 +195,8 @@ export class ChatService extends EventEmitter {
     const ac = new AbortController()
     // Store abort controller keyed by sessionId
     const s = this.sessions.get(sessionId)
-    if (s) { s.abortController?.abort(); s.abortController = ac }
-    else { this.sessions.set(sessionId, { id: sessionId, messages: [], abortController: ac }) }
+    if (s) { this.flushDelta(s); s.abortController?.abort(); s.abortController = ac }
+    else { this.sessions.set(sessionId, { id: sessionId, messages: [], abortController: ac, pendingMessages: [], deltaBuffer: '', deltaTimer: null }) }
 
     try {
       const stream = client.messages.stream({
@@ -157,13 +213,19 @@ export class ChatService extends EventEmitter {
       ac.signal.addEventListener('abort', onAbort, { once: true })
 
       stream.on('text', (text: string) => {
-        this.emit('delta', sessionId, text)
+        // Use batched delta to prevent renderer flooding
+        const sess = this.sessions.get(sessionId)
+        if (sess) this.scheduleDelta(sess, text)
+        else this.emit('delta', sessionId, text)
       })
 
       await stream.finalMessage()
       ac.signal.removeEventListener('abort', onAbort)
 
       if (!ac.signal.aborted) {
+        // Flush remaining delta before done
+        const sess = this.sessions.get(sessionId)
+        if (sess) this.flushDelta(sess)
         this.emit('done', sessionId)
       }
     } catch (err: unknown) {
@@ -430,17 +492,15 @@ export class ChatService extends EventEmitter {
           try {
             output = await new Promise<string>((resolve, reject) => {
               const utf8Env = { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONIOENCODING: 'utf-8' }
-              if (isWin) {
-                child = spawn('cmd.exe', ['/c', `chcp 65001 >nul && ${cmd}`], {
-                  cwd, env: utf8Env, windowsHide: true,
-                  stdio: ['ignore', 'pipe', 'pipe'],
-                })
-              } else {
-                child = spawn(cmd, [], {
-                  cwd, env: utf8Env, shell: '/bin/bash', windowsHide: true,
-                  stdio: ['ignore', 'pipe', 'pipe'],
-                })
-              }
+              // shell:true on Windows uses cmd.exe /d /s /c which handles
+              // nested quotes correctly (like Claude Code CLI). This avoids
+              // the quoting issues that happen with explicit cmd.exe /c.
+              child = spawn(cmd, [], {
+                cwd, env: utf8Env,
+                shell: isWin ? true : '/bin/bash',
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              })
               const chunks: Buffer[] = []
               const errChunks: Buffer[] = []
               child.stdout!.on('data', (d: Buffer) => chunks.push(d))
@@ -452,7 +512,8 @@ export class ChatService extends EventEmitter {
                 if (code === 0 || stdout) resolve(stdout || stderr)
                 else reject(new Error(stderr || `Command exited with code ${code}`))
               })
-              // Support abort for instant cancellation
+              // Support abort for instant cancellation. No timeout — model
+              // can try alternative approaches if this command fails.
               if (signal) {
                 const onAbort = () => {
                   if (!child || child.killed) return
@@ -464,7 +525,7 @@ export class ChatService extends EventEmitter {
                   }
                 }
                 signal.addEventListener('abort', onAbort, { once: true })
-                if (!signal.aborted) child.on('close', () => signal.removeEventListener('abort', onAbort))
+                if (!signal.aborted) child.on('close', () => { signal.removeEventListener('abort', onAbort) })
               }
             })
           } catch (e: any) {
@@ -596,15 +657,17 @@ export class ChatService extends EventEmitter {
             const delta = json.choices?.[0]?.delta?.content
             if (delta) {
               fullText += delta
-              this.emit('delta', sessionId, delta)
+              this.scheduleDelta(session, delta)
             }
           } catch {}
         }
       }
 
+      this.flushDelta(session)
       session.messages.push({ role: 'assistant', content: fullText })
       this.emit('done', sessionId)
     } catch (e: any) {
+      this.flushDelta(session)
       if (e.name === 'AbortError') {
         this.emit('cancelled', sessionId)
       } else {
@@ -618,6 +681,23 @@ export class ChatService extends EventEmitter {
   async sendMessage(sessionId: string, userText: string, images?: string[]): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return
+
+    // ── /btw command: spawn a background sub-agent ──
+    const btwMatch = userText.trim().match(/^\/btw\s+(.+)$/i)
+    if (btwMatch) {
+      const task = btwMatch[1].trim()
+      this.spawnBtw(task, sessionId)
+      return
+    }
+
+    // ── Message queue for mid-task messaging ──
+    // If a request is already in-flight, queue the new message.
+    // It will be processed after the current one finishes (like Claude Code CLI).
+    if (session.abortController && !session.abortController.signal.aborted) {
+      session.pendingMessages.push({ text: userText, images })
+      this.emit('delta', sessionId, `\n\n> *[队列中] 将在当前任务完成后处理: ${userText.slice(0, 50)}${userText.length > 50 ? '...' : ''}*\n\n`)
+      return
+    }
 
     const config = this.getApiConfig()
     if (!config.apiKey) {
@@ -694,7 +774,17 @@ export class ChatService extends EventEmitter {
 
     // Use per-session system prompt override if set (e.g. WeChat persona)
     const sessionSystemOverride = session.systemPromptOverride
-    const basePrompt = sessionSystemOverride || `You are ${config.modelDisplay}, a large language model by ${config.providerName}. You are running inside ZXCODE, an AI-powered developer assistant desktop application. Respond in the same language as the user. Use Markdown for formatting. When helping with code, use the available tools to read/write files and run commands. When asked about your identity, always answer that you are ${config.modelDisplay} by ${config.providerName} — never say you are Claude unless you are actually running on Anthropic's Claude model.`
+    const basePrompt = sessionSystemOverride || `You are ${config.modelDisplay}, a large language model by ${config.providerName}. You are running inside ZXCODE, an AI-powered developer assistant desktop application.
+
+## CRITICAL: Execution Rules
+1. **Complete tasks in ONE GO.** When the user asks you to do something, plan the full sequence of actions and execute them all. Do NOT stop after one step unless you hit an unrecoverable error.
+2. **Use multiple tool calls per response.** You can call read_file, execute_command, write_file, and list_directory all in the same response. Batch them to reduce round-trips.
+3. **Don't ask for confirmation.** Just execute. If a command might be destructive, warn the user but still execute.
+4. **On error, try alternatives.** If a command fails (e.g., curl with SSL issues), immediately try a different approach (e.g., --insecure flag, python, wget) without asking.
+5. **Be decisive.** Pick the right tool for each job and use it.
+
+## Formatting
+Respond in the user's language. Use Markdown for formatting. When asked about your identity, always answer that you are ${config.modelDisplay} by ${config.providerName} — never say you are Claude unless you are actually running on Anthropic's Claude model.`
     const skillsPrompt = sessionSystemOverride ? '' : this.getSkillsPrompt()
     const systemPrompt = basePrompt + (skillsPrompt || '')
 
@@ -707,7 +797,7 @@ export class ChatService extends EventEmitter {
 
         const stream = client.messages.stream({
           model: config.model,
-          max_tokens: 8192,
+          max_tokens: 16384,
           system: systemPrompt,
           messages: session.messages,
           tools: this.tools,
@@ -723,13 +813,33 @@ export class ChatService extends EventEmitter {
 
         stream.on('text', (text: string) => {
           textContent += text
-          this.emit('delta', sessionId, text)
+          // Batched delta to prevent renderer flooding
+          this.scheduleDelta(session, text)
         })
 
-        const msg = await stream.finalMessage()
+        // Race finalMessage against abort so the user can always cancel.
+        // No timeout — model keeps working until it finishes or user intervenes.
+        const msg = await new Promise<Anthropic.Message>((resolve, reject) => {
+          let settled = false
+          const finish = (fn: () => void) => {
+            if (!settled) { settled = true; fn() }
+          }
+          // User-triggered abort
+          const onAbortReject = () => finish(() => reject(new Error('Aborted')))
+          ac.signal.addEventListener('abort', onAbortReject, { once: true })
+          // Stream completes normally (or with API error)
+          stream.finalMessage().then((m) => {
+            finish(() => { ac.signal.removeEventListener('abort', onAbortReject); resolve(m) })
+          }).catch((e) => {
+            finish(() => { ac.signal.removeEventListener('abort', onAbortReject); reject(e) })
+          })
+        })
         ac.signal.removeEventListener('abort', onAbort)
 
         if (ac.signal.aborted) break
+
+        // Flush remaining buffered delta before moving on
+        this.flushDelta(session)
 
         // Build assistant blocks (ensure valid input JSON)
         const assistantBlocks: Anthropic.ContentBlockParam[] = msg.content.map((b) => {
@@ -744,6 +854,7 @@ export class ChatService extends EventEmitter {
 
         const toolBlocks = msg.content.filter((b) => b.type === 'tool_use')
         if (toolBlocks.length === 0) {
+          this.flushDelta(session)
           this.emit('done', sessionId)
           return
         }
@@ -753,6 +864,8 @@ export class ChatService extends EventEmitter {
         for (const tb of toolBlocks) {
           // Check abort BEFORE executing each tool
           if (ac.signal.aborted) break
+          // Emit tool-start so renderer can show task-specific status (安装中/修复中/读取中...)
+          this.emit('tool-start', sessionId, tb.id, tb.name, tb.input)
           const result = await this.executeTool(tb.name, tb.input as Record<string, unknown>, ac.signal)
           this.emit('tool_result', sessionId, tb.id, tb.name, tb.input, result)
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result })
@@ -761,12 +874,20 @@ export class ChatService extends EventEmitter {
         }
         // If aborted during tool execution, don't send results back — just stop
         if (ac.signal.aborted) {
+          this.flushDelta(session)
           this.emit('cancelled', sessionId)
           return
         }
         session.messages.push({ role: 'user', content: toolResults })
       }
+      // Max rounds exhausted (5) — model kept using tools. Emit done so the
+      // UI doesn't stay stuck in "streaming" mode forever.
+      if (!ac.signal.aborted) {
+        this.flushDelta(session)
+        this.emit('done', sessionId)
+      }
     } catch (err: unknown) {
+      this.flushDelta(session)
       if (ac.signal.aborted) {
         this.emit('cancelled', sessionId)
       } else {
@@ -774,6 +895,261 @@ export class ChatService extends EventEmitter {
       }
     } finally {
       if (session.abortController === ac) session.abortController = null
+      // Process next queued message (mid-task messaging — like Claude Code CLI)
+      this.processMessageQueue(session)
     }
+  }
+
+  // ── Message queue processing ──
+  private processMessageQueue(session: ChatSession): void {
+    const next = session.pendingMessages.shift()
+    if (next) {
+      // Notify renderer that a queued message is about to start,
+      // so it can create a new assistant message placeholder.
+      this.emit('message-start', session.id)
+      this.sendMessage(session.id, next.text, next.images)
+    }
+  }
+
+  // ── Background Task Worker (BTW) Sub-agent System ──
+
+  /** Spawn a background sub-agent to handle a task independently */
+  private spawnBtw(task: string, parentSessionId: string): void {
+    const btwId = 'btw-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+    const runningCount = Array.from(this.btwSessions.values()).filter(b => b.status === 'running').length
+
+    const btwSession: BtwSession = {
+      id: btwId,
+      task,
+      status: runningCount >= MAX_CONCURRENT_BTW ? 'queued' : 'running',
+      createdAt: Date.now(),
+      messages: [],
+      abortController: new AbortController(),
+      output: '',
+      deltaBuffer: '',
+      deltaTimer: null,
+      parentSessionId,
+    }
+    this.btwSessions.set(btwId, btwSession)
+
+    // Notify renderer — emit a standalone message event so the main chat
+    // shows a clear notification (no streaming placeholder needed).
+    const notifyText = btwSession.status === 'queued'
+      ? `🔀 **后台子任务已排队** \`${btwId}\`\n> ${task}\n\n(已有 ${runningCount} 个任务运行中，最多 ${MAX_CONCURRENT_BTW} 个并发。完成后自动开始。)`
+      : `🔀 **后台子任务已启动** \`${btwId}\`\n> ${task}\n\n子任务在后台独立运行，进度见下方面板。`
+    this.emit('btw-started', btwId, task, parentSessionId)
+    this.emit('btw-spawned', parentSessionId, notifyText)
+    // Run the sub-agent asynchronously if not queued
+    if (btwSession.status === 'running') {
+      this.runBtwAgent(btwId, task, parentSessionId)
+    }
+  }
+
+  // ── BTW delta batching (same pattern as main chat to prevent renderer flood) ──
+  private flushBtwDelta(btw: BtwSession): void {
+    if (btw.deltaTimer) {
+      clearTimeout(btw.deltaTimer)
+      btw.deltaTimer = null
+    }
+    if (btw.deltaBuffer) {
+      const text = btw.deltaBuffer
+      btw.deltaBuffer = ''
+      this.emit('btw-delta', btw.id, text)
+    }
+  }
+
+  private scheduleBtwDelta(btw: BtwSession, text: string): void {
+    btw.deltaBuffer += text
+    if (!btw.deltaTimer) {
+      btw.deltaTimer = setTimeout(() => {
+        this.flushBtwDelta(btw)
+      }, 30) // 30ms batch for BTW too — keeps sub-agent output flowing
+    }
+  }
+
+  /** Kick queued BTWs when a running one finishes */
+  private dequeueBtw(): void {
+    const runningCount = Array.from(this.btwSessions.values()).filter(b => b.status === 'running').length
+    if (runningCount >= MAX_CONCURRENT_BTW) return
+    // Find the oldest queued BTW
+    const queued = Array.from(this.btwSessions.values())
+      .filter(b => b.status === 'queued')
+      .sort((a, b) => a.createdAt - b.createdAt)
+    if (queued.length > 0) {
+      const next = queued[0]
+      next.status = 'running'
+      next.abortController = new AbortController()
+      this.emit('btw-started', next.id, next.task, next.parentSessionId)
+      this.emit('delta', next.parentSessionId, `\n\n🔀 **排队子任务开始执行** \`${next.id}\`\n> ${next.task}\n`)
+      this.runBtwAgent(next.id, next.task, next.parentSessionId)
+    }
+  }
+
+  /** Run a BTW sub-agent — independent lifecycle, no blocking */
+  private async runBtwAgent(btwId: string, task: string, parentSessionId: string): Promise<void> {
+    const btw = this.btwSessions.get(btwId)
+    if (!btw) return
+
+    const config = this.getApiConfig()
+    const client = new Anthropic({ apiKey: config.apiKey, baseURL: config.baseURL })
+    const ac = btw.abortController!
+
+    const systemPrompt = `You are a background sub-agent (BTW) running inside ZXCODE. You have been assigned a specific task by the user. Focus exclusively on completing this task. Use available tools as needed. Respond in the user's language.
+
+Your task: ${task}
+
+IMPORTANT: Be thorough and complete the task fully. Report your results clearly.`
+
+    // Push the task as user message
+    btw.messages.push({ role: 'user', content: task })
+
+    const maxRounds = 5
+    let round = 0
+
+    try {
+      while (round < maxRounds && !ac.signal.aborted) {
+        round++
+
+        const stream = client.messages.stream({
+          model: config.model,
+          max_tokens: 16384,
+          system: systemPrompt,
+          messages: btw.messages,
+          tools: this.tools,
+        })
+
+        const onAbort = () => {
+          try { (stream as any).abort?.() } catch {}
+          try { (stream as any).controller?.abort() } catch {}
+        }
+        ac.signal.addEventListener('abort', onAbort, { once: true })
+
+        let textContent = ''
+
+        stream.on('text', (text: string) => {
+          textContent += text
+          btw.output += text
+          // Batched delta to prevent renderer flooding
+          this.scheduleBtwDelta(btw, text)
+        })
+
+        // Race finalMessage against abort so BTW can be cancelled by user.
+        // No timeout — BTW sub-agent keeps working until it finishes or user cancels.
+        const msg = await new Promise<Anthropic.Message>((resolve, reject) => {
+          let settled = false
+          const finish = (fn: () => void) => {
+            if (!settled) { settled = true; fn() }
+          }
+          const onAbortReject = () => finish(() => reject(new Error('Aborted')))
+          ac.signal.addEventListener('abort', onAbortReject, { once: true })
+          stream.finalMessage().then((m) => {
+            finish(() => { ac.signal.removeEventListener('abort', onAbortReject); resolve(m) })
+          }).catch((e) => {
+            finish(() => { ac.signal.removeEventListener('abort', onAbortReject); reject(e) })
+          })
+        })
+        ac.signal.removeEventListener('abort', onAbort)
+
+        if (ac.signal.aborted) break
+
+        // Flush buffered deltas
+        this.flushBtwDelta(btw)
+
+        const assistantBlocks: Anthropic.ContentBlockParam[] = msg.content.map((b) => {
+          if (b.type === 'text') return { type: 'text', text: b.text }
+          if (b.type === 'tool_use') {
+            const input = (b.input && typeof b.input === 'object') ? b.input as Record<string, unknown> : {}
+            return { type: 'tool_use', id: b.id, name: b.name, input }
+          }
+          return { type: 'text', text: '' }
+        }).filter(b => b.type === 'text' ? (b as any).text : true)
+        btw.messages.push({ role: 'assistant', content: assistantBlocks })
+
+        const toolBlocks = msg.content.filter((b) => b.type === 'tool_use')
+        if (toolBlocks.length === 0) {
+          this.flushBtwDelta(btw)
+          btw.status = 'completed'
+          this.emit('btw-done', btwId, btw.output)
+          this.emit('btw-result', parentSessionId, btwId, btw.output)
+          this.dequeueBtw() // Kick next queued BTW
+          return
+        }
+
+        const toolResults: Anthropic.ContentBlockParam[] = []
+        for (const tb of toolBlocks) {
+          if (ac.signal.aborted) break
+          // Emit tool-start for BTW sub-agent so renderer can show execution status
+          this.emit('btw-tool-start', btwId, tb.id, tb.name, tb.input)
+          const result = await this.executeTool(tb.name, tb.input as Record<string, unknown>, ac.signal)
+          const toolDelta = `\n\n**${tb.name}**\n\`\`\`\n${result}\n\`\`\`\n`
+          btw.output += toolDelta
+          this.scheduleBtwDelta(btw, toolDelta)
+          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result })
+          if (ac.signal.aborted) break
+        }
+        if (ac.signal.aborted) break
+        btw.messages.push({ role: 'user', content: toolResults })
+      }
+      // Max rounds exhausted — mark BTW as completed with what we have
+      if (!ac.signal.aborted) {
+        this.flushBtwDelta(btw)
+        btw.status = 'completed'
+        this.emit('btw-done', btwId, btw.output)
+        this.emit('btw-result', parentSessionId, btwId, btw.output)
+        this.dequeueBtw()
+        return
+      }
+    } catch (err: unknown) {
+      this.flushBtwDelta(btw)
+      if (ac.signal.aborted) {
+        btw.status = 'cancelled'
+        this.emit('btw-cancelled', btwId)
+      } else {
+        btw.status = 'error'
+        btw.error = err instanceof Error ? err.message : String(err)
+        this.emit('btw-error', btwId, btw.error)
+      }
+      this.dequeueBtw() // Kick next queued BTW
+      return
+    }
+
+    // If loop exhausted without finishing
+    this.flushBtwDelta(btw)
+    btw.status = btw.status === 'running' ? 'completed' : btw.status
+    if (btw.status === 'completed') {
+      this.emit('btw-done', btwId, btw.output)
+      this.emit('btw-result', parentSessionId, btwId, btw.output)
+    }
+    this.dequeueBtw() // Kick next queued BTW
+  }
+
+  // ── BTW Management API ──
+
+  /** Cancel a running BTW sub-agent */
+  cancelBtw(btwId: string): boolean {
+    const btw = this.btwSessions.get(btwId)
+    if (!btw) return false
+    btw.abortController?.abort()
+    btw.status = 'cancelled'
+    this.emit('btw-cancelled', btwId)
+    return true
+  }
+
+  /** List all BTW sessions */
+  listBtw(): Array<{ id: string; task: string; status: string; createdAt: number; outputPreview: string }> {
+    return Array.from(this.btwSessions.values()).map(b => ({
+      id: b.id,
+      task: b.task,
+      status: b.status,
+      createdAt: b.createdAt,
+      outputPreview: b.output.slice(-500), // Last 500 chars
+    }))
+  }
+
+  /** Get a specific BTW session's full output */
+  getBtwOutput(btwId: string): { task: string; status: string; output: string; error?: string } | null {
+    const btw = this.btwSessions.get(btwId)
+    if (!btw) return null
+    return { task: btw.task, status: btw.status, output: btw.output, error: btw.error }
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import type { ChatMessage } from './types'
@@ -9,22 +9,29 @@ interface MessageListProps {
   onDeleteMessages?: (ids: string[]) => void
 }
 
-export function MessageList({ messages, onDeleteMessages }: MessageListProps) {
+export const MessageList = memo(function MessageList({ messages, onDeleteMessages }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [confirmDelete, setConfirmDelete] = useState<{ ids: string[]; single: boolean } | null>(null)
+  const rafRef = useRef<number>(0)
 
+  // Smooth scroll on new messages (non-streaming)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages.length])
 
+  // Throttled auto-scroll during streaming — uses rAF to avoid jank
   useEffect(() => {
     const streamingMsg = messages.find((m) => m.streaming)
     if (streamingMsg) {
-      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      })
     }
-  }, [messages.map((m) => m.content).join('')])
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [messages.length > 0 ? messages[messages.length - 1]?.content?.length : 0])
 
   // Clear selection when messages change (new conversation)
   useEffect(() => {
@@ -139,4 +146,4 @@ export function MessageList({ messages, onDeleteMessages }: MessageListProps) {
       />
     </div>
   )
-}
+})
